@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Import/Export - AI Date Ideas Manager</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; }
+        .import-export-container { background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .feature-card { border: 1px solid #dee2e6; border-radius: 8px; padding: 1.5rem; margin-bottom: 1rem; }
+        .feature-icon { font-size: 2rem; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/"><i class="fas fa-heart"></i> AI Date Ideas Manager</a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/"><i class="fas fa-home"></i> Home</a>
+                <a class="nav-link" href="/add"><i class="fas fa-plus"></i> Add New</a>
+                <a class="nav-link" href="/search"><i class="fas fa-search"></i> Search</a>
+                <a class="nav-link" href="/scrape"><i class="fas fa-globe"></i> Web Scrape</a>
+                <a class="nav-link active" href="/import-export"><i class="fas fa-exchange-alt"></i> Import/Export</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row justify-content-center">
+            <div class="col-md-10">
+                <div class="import-export-container p-4">
+                    <h2 class="text-center mb-4">
+                        <i class="fas fa-exchange-alt text-info"></i> Import & Export Date Ideas
+                    </h2>
+                    
+                    <div class="row">
+                        <!-- Export Section -->
+                        <div class="col-md-6">
+                            <div class="feature-card">
+                                <div class="text-center mb-3">
+                                    <i class="fas fa-download feature-icon text-success"></i>
+                                    <h4 class="mt-2">Export Data</h4>
+                                </div>
+                                
+                                <p class="text-muted">Export all your date ideas to a JSON file for backup or sharing.</p>
+                                
+                                <div class="d-grid">
+                                    <button class="btn btn-success btn-lg" id="exportBtn">
+                                        <i class="fas fa-download"></i> Export All Date Ideas
+                                    </button>
+                                </div>
+                                
+                                <div id="exportStatus" class="mt-3" style="display: none;"></div>
+                            </div>
+                        </div>
+                        
+                        <!-- Import Section -->
+                        <div class="col-md-6">
+                            <div class="feature-card">
+                                <div class="text-center mb-3">
+                                    <i class="fas fa-upload feature-icon text-primary"></i>
+                                    <h4 class="mt-2">Import Data</h4>
+                                </div>
+                                
+                                <p class="text-muted">Import date ideas from a JSON file. Must be in the correct format.</p>
+                                
+                                <form id="importForm">
+                                    <div class="mb-3">
+                                        <label for="jsonFile" class="form-label">JSON File Path</label>
+                                        <input type="text" class="form-control" id="jsonFile" name="file" 
+                                               placeholder="e.g., scraped_ideas_20250913_143022.json" required>
+                                        <div class="form-text">Enter the filename of a JSON file in the current directory</div>
+                                    </div>
+                                    
+                                    <div class="d-grid">
+                                        <button type="submit" class="btn btn-primary btn-lg">
+                                            <i class="fas fa-upload"></i> Import Date Ideas
+                                        </button>
+                                    </div>
+                                </form>
+                                
+                                <div id="importStatus" class="mt-3" style="display: none;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- File Format Information -->
+                    <div class="mt-4 p-3 bg-light rounded">
+                        <h5><i class="fas fa-info-circle"></i> JSON File Format</h5>
+                        <p class="small text-muted mb-2">
+                            The JSON file should contain an array of date idea objects with the following structure:
+                        </p>
+                        <pre class="small bg-white p-2 rounded border"><code>[
+  {
+    "title": "Romantic Dinner at Waterfront",
+    "description": "Beautiful restaurant with water views...",
+    "city": "Ottawa",
+    "categories": ["romantic", "dinner"],
+    "price_tier": 3,
+    "duration_min": 120,
+    "indoor": true,
+    "kid_friendly": false,
+    "website": "https://example.com",
+    "phone": "(613) 555-0123",
+    "rating": 4.5,
+    "review_count": 150,
+    "lat": 45.4215,
+    "lon": -75.6972
+  }
+]</code></pre>
+                    </div>
+                    
+                    <!-- Quick Actions -->
+                    <div class="mt-4 text-center">
+                        <h5>Quick Actions</h5>
+                        <div class="btn-group" role="group">
+                            <a href="/" class="btn btn-outline-primary">
+                                <i class="fas fa-home"></i> View All Ideas
+                            </a>
+                            <a href="/scrape" class="btn btn-outline-info">
+                                <i class="fas fa-globe"></i> Web Scrape More
+                            </a>
+                            <a href="/add" class="btn btn-outline-success">
+                                <i class="fas fa-plus"></i> Add Manually
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Export functionality
+        document.getElementById('exportBtn').addEventListener('click', async function() {
+            const btn = this;
+            const status = document.getElementById('exportStatus');
+            
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exporting...';
+            status.style.display = 'none';
+            
+            try {
+                const response = await fetch('/export-json');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                status.innerHTML = `
+                    <div class="alert alert-success">
+                        <h6><i class="fas fa-check-circle"></i> Export Successful!</h6>
+                        <p class="mb-1"><strong>File:</strong> ${result.filename}</p>
+                        <p class="mb-0"><strong>Records:</strong> ${result.count} date ideas</p>
+                    </div>
+                `;
+                status.style.display = 'block';
+                
+            } catch (error) {
+                console.error('Export error:', error);
+                status.innerHTML = `
+                    <div class="alert alert-danger">
+                        <h6><i class="fas fa-exclamation-triangle"></i> Export Failed</h6>
+                        <p class="mb-0">Error: ${error.message}</p>
+                    </div>
+                `;
+                status.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-download"></i> Export All Date Ideas';
+            }
+        });
+        
+        // Import functionality
+        document.getElementById('importForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const submitBtn = this.querySelector('button[type="submit"]');
+            const status = document.getElementById('importStatus');
+            
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Importing...';
+            status.style.display = 'none';
+            
+            try {
+                const response = await fetch('/import-json', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                status.innerHTML = `
+                    <div class="alert alert-success">
+                        <h6><i class="fas fa-check-circle"></i> Import Successful!</h6>
+                        <p class="mb-0">${result.message}</p>
+                    </div>
+                `;
+                status.style.display = 'block';
+                
+                // Clear form
+                document.getElementById('jsonFile').value = '';
+                
+            } catch (error) {
+                console.error('Import error:', error);
+                status.innerHTML = `
+                    <div class="alert alert-danger">
+                        <h6><i class="fas fa-exclamation-triangle"></i> Import Failed</h6>
+                        <p class="mb-0">Error: ${error.message}</p>
+                    </div>
+                `;
+                status.style.display = 'block';
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fas fa-upload"></i> Import Date Ideas';
+            }
+        });
+    </script>
+</body>
+</html>

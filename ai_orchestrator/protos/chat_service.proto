@@ -1,0 +1,102 @@
+syntax = "proto3";
+package dateplanner.v1;
+
+message UserLocation {
+  double lat = 1;
+  double lon = 2;
+}
+
+message Constraints {
+  string city = 1;
+  int32  budgetTier = 2;   // 1,2,3
+  int32  hours = 3;        // desired total duration in minutes
+  bool   indoor = 4;
+  repeated string categories = 5;
+}
+
+message ChatMessage {
+  string role = 1;     // "user" | "assistant" | "system"
+  string content = 2;  // plain text
+}
+
+message ChatRequest {
+  string session_id = 1;              // Client-provided session identifier
+  repeated ChatMessage messages = 2;
+  UserLocation userLocation = 3;
+  Constraints constraints = 4;
+  bool stream = 5;                    // default true
+}
+
+message EntityReference {
+  string id = 1;
+  string type = 2;      // date_idea, venue, city, category, price_tier, business
+  string title = 3;
+  string url = 4;
+}
+
+message EntityReferences {
+  EntityReference primary_entity = 1;
+  repeated EntityReference related_entities = 2;
+}
+
+message Citation {
+  string url = 1;
+  string title = 2;
+}
+
+message Option {
+  string title = 1;
+  repeated string categories = 2;
+  string price = 3;            // "$" | "$$" | "$$$"
+  int32 duration_min = 4;
+  string why_it_fits = 5;
+  string logistics = 6;
+  string website = 7;
+  string source = 8;           // "vector_store" | "web" | "mixed"
+  EntityReferences entity_references = 9;
+  repeated Citation citations = 10;
+}
+
+message StructuredAnswer {
+  string summary = 1;
+  repeated Option options = 2;
+}
+
+message ChatDelta {
+  string session_id = 1;              // Echo back the session identifier
+  string text_delta = 2;              // streaming assistant text
+  StructuredAnswer structured = 3;    // only sent once when complete
+  bool done = 4;                      // signals end of stream
+}
+
+message KillChatRequest {
+  string session_id = 1;             // optional session identifier
+  string reason = 2;                 // optional reason for termination
+}
+
+message KillChatResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message HealthCheckRequest {
+  // Empty request for health check
+}
+
+message HealthCheckResponse {
+  string status = 1;                 // "healthy", "degraded", "unhealthy"
+  string message = 2;
+  int64 timestamp = 3;
+  map<string, string> details = 4;   // service details
+}
+
+service AiOrchestrator {
+  // Bidirectional streaming: client sends one ChatRequest; server streams ChatDelta
+  rpc Chat(stream ChatRequest) returns (stream ChatDelta);
+  
+  // Kill/terminate an active chat session
+  rpc KillChat(KillChatRequest) returns (KillChatResponse);
+  
+  // Health check endpoint
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
