@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Scraping - AI Date Ideas Manager</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; }
+        .scrape-container { background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .source-card { border: 1px solid #dee2e6; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+        .source-icon { font-size: 2rem; }
+        .loading-spinner { display: none; }
+        .results-container { display: none; margin-top: 2rem; }
+        .scraped-item { border: 1px solid #e9ecef; border-radius: 5px; padding: 0.75rem; margin-bottom: 0.5rem; background: #f8f9fa; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/"><i class="fas fa-heart"></i> AI Date Ideas Manager</a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/"><i class="fas fa-home"></i> Home</a>
+                <a class="nav-link" href="/add"><i class="fas fa-plus"></i> Add New</a>
+                <a class="nav-link" href="/search"><i class="fas fa-search"></i> Search</a>
+                <a class="nav-link active" href="/scrape"><i class="fas fa-globe"></i> Web Scrape</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row justify-content-center">
+            <div class="col-md-10">
+                <div class="scrape-container p-4">
+                    <h2 class="text-center mb-4">
+                        <i class="fas fa-globe text-info"></i> Web Scraping for Date Ideas
+                    </h2>
+                    
+                    <div class="row mb-4">
+                        <div class="col-md-4">
+                            <div class="source-card text-center">
+                                <i class="fab fa-yelp source-icon text-danger"></i>
+                                <h5 class="mt-2">Yelp</h5>
+                                <p class="small text-muted">Restaurants, bars, entertainment venues</p>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="source-card text-center">
+                                <i class="fas fa-calendar-alt source-icon text-warning"></i>
+                                <h5 class="mt-2">Eventbrite</h5>
+                                <p class="small text-muted">Date events, workshops, experiences</p>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="source-card text-center">
+                                <i class="fas fa-map-marked-alt source-icon text-success"></i>
+                                <h5 class="mt-2">TripAdvisor</h5>
+                                <p class="small text-muted">Attractions, activities, tours</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <form id="scrapeForm">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="city" class="form-label">
+                                    <i class="fas fa-map-marker-alt"></i> City to Search
+                                </label>
+                                <input type="text" class="form-control form-control-lg" id="city" name="city" 
+                                       value="Ottawa" required placeholder="e.g., Ottawa, Toronto, Montreal">
+                            </div>
+                            
+                            <div class="col-md-6 mb-3">
+                                <label for="max_per_source" class="form-label">
+                                    <i class="fas fa-list-ol"></i> Max Results per Source
+                                </label>
+                                <select class="form-select form-select-lg" id="max_per_source" name="max_per_source">
+                                    <option value="5">5 results each</option>
+                                    <option value="10" selected>10 results each</option>
+                                    <option value="20">20 results each</option>
+                                    <option value="30">30 results each</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="row mb-4">
+                            <div class="col-md-12">
+                                <div class="form-check form-check-lg">
+                                    <input class="form-check-input" type="checkbox" id="save_to_db" name="save_to_db" checked>
+                                    <label class="form-check-label" for="save_to_db">
+                                        <i class="fas fa-database"></i> Automatically save to database
+                                    </label>
+                                    <div class="form-text">If unchecked, results will only be exported to JSON for review</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="text-center">
+                            <button type="submit" class="btn btn-info btn-lg" id="startScrapeBtn">
+                                <i class="fas fa-globe"></i> Start Web Scraping
+                            </button>
+                        </div>
+                    </form>
+                    
+                    <!-- Loading indicator -->
+                    <div class="loading-spinner text-center">
+                        <div class="spinner-border text-info" role="status" style="width: 3rem; height: 3rem;">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <h4 class="mt-3">Scraping date ideas from the web...</h4>
+                        <p class="text-muted">This may take a few minutes. Please be patient.</p>
+                    </div>
+                    
+                    <!-- Results container -->
+                    <div class="results-container">
+                        <div class="alert alert-success" role="alert">
+                            <h4 class="alert-heading"><i class="fas fa-check-circle"></i> Scraping Completed!</h4>
+                            <div id="results-summary"></div>
+                        </div>
+                        
+                        <h5><i class="fas fa-eye"></i> Preview of Scraped Ideas:</h5>
+                        <div id="scraped-preview"></div>
+                        
+                        <div class="text-center mt-3">
+                            <a href="/" class="btn btn-success">
+                                <i class="fas fa-home"></i> View All Date Ideas
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Information Panel -->
+                <div class="mt-4 p-4 bg-light rounded">
+                    <h5><i class="fas fa-info-circle"></i> How Web Scraping Works</h5>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6><i class="fas fa-robot"></i> What We Scrape:</h6>
+                            <ul class="small">
+                                <li>Restaurant and venue information from Yelp</li>
+                                <li>Date-related events from Eventbrite</li>
+                                <li>Tourist attractions from TripAdvisor</li>
+                                <li>Ratings, reviews, and pricing information</li>
+                                <li>Location and category data</li>
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <h6><i class="fas fa-shield-alt"></i> Ethical Scraping:</h6>
+                            <ul class="small">
+                                <li>Respectful delays between requests</li>
+                                <li>Only public information is collected</li>
+                                <li>Automatic deduplication of results</li>
+                                <li>Rate-limited to avoid server overload</li>
+                                <li>No personal or private data collection</li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-3">
+                        <h6><i class="fas fa-cogs"></i> After Scraping:</h6>
+                        <p class="small text-muted">
+                            Scraped ideas are automatically processed to generate vector embeddings for semantic search.
+                            Duplicate entries are removed, and all ideas are tagged with their source for transparency.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.getElementById('scrapeForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const startBtn = document.getElementById('startScrapeBtn');
+            const loadingSpinner = document.querySelector('.loading-spinner');
+            const resultsContainer = document.querySelector('.results-container');
+            
+            // Show loading state
+            startBtn.disabled = true;
+            startBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Scraping...';
+            loadingSpinner.style.display = 'block';
+            resultsContainer.style.display = 'none';
+            
+            try {
+                const response = await fetch('/scrape', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                // Hide loading, show results
+                loadingSpinner.style.display = 'none';
+                resultsContainer.style.display = 'block';
+                
+                // Update results summary
+                const summary = document.getElementById('results-summary');
+                summary.innerHTML = `
+                    <p class="mb-1"><strong>Total scraped:</strong> ${result.total_scraped} ideas</p>
+                    <p class="mb-1"><strong>Unique ideas:</strong> ${result.unique_ideas} ideas</p>
+                    <p class="mb-1"><strong>Saved to database:</strong> ${result.saved_to_db} ideas</p>
+                    <p class="mb-0"><strong>Exported to:</strong> ${result.json_file}</p>
+                `;
+                
+                // Update preview
+                const preview = document.getElementById('scraped-preview');
+                preview.innerHTML = result.preview.map(idea => `
+                    <div class="scraped-item">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <h6 class="mb-1">${idea.title}</h6>
+                                <p class="small text-muted mb-1">${idea.description}</p>
+                                <small class="text-muted">
+                                    <i class="fas fa-map-marker-alt"></i> ${idea.city} 
+                                    • Source: ${idea.source}
+                                    ${idea.rating > 0 ? `• <i class="fas fa-star text-warning"></i> ${idea.rating}` : ''}
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Scraping error:', error);
+                loadingSpinner.style.display = 'none';
+                
+                // Show error message
+                const alertDiv = document.createElement('div');
+                alertDiv.className = 'alert alert-danger mt-3';
+                alertDiv.innerHTML = `
+                    <h4 class="alert-heading"><i class="fas fa-exclamation-triangle"></i> Scraping Failed</h4>
+                    <p>Error: ${error.message}</p>
+                `;
+                document.querySelector('.scrape-container').appendChild(alertDiv);
+            } finally {
+                // Reset button
+                startBtn.disabled = false;
+                startBtn.innerHTML = '<i class="fas fa-globe"></i> Start Web Scraping';
+            }
+        });
+    </script>
+</body>
+</html>
