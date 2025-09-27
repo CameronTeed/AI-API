@@ -34,6 +34,27 @@ health-check:  ## Check if the server is healthy (requires grpcurl)
 	@echo "🩺 Checking server health..."
 	@grpcurl -plaintext localhost:7000 dateplanner.v1.AiOrchestrator/HealthCheck || echo "❌ Health check failed - server may not be running or grpcurl not installed"
 
+test-scrapingbee:  ## Test ScrapingBee integration
+	PYTHONPATH=. python3 test_scrapingbee.py
+
+scrape-old:  ## Run old web scraper (direct scraping)
+	PYTHONPATH=. python3 web_scraper.py --city Ottawa --max-per-source 5 --export-json
+
+scrape-scrapingbee:  ## Run ScrapingBee web scraper with Google Places
+	PYTHONPATH=. python3 web_scraper_scrapingbee.py --city Ottawa --max-per-source 5 --export-json
+
+scrape-scrapingbee-db:  ## Run ScrapingBee scraper and save to database
+	PYTHONPATH=. python3 web_scraper_scrapingbee.py --city Ottawa --max-per-source 8 --export-json
+
+scrape-usage:  ## Check ScrapingBee API usage
+	PYTHONPATH=. python3 web_scraper_scrapingbee.py --usage-info
+
+explore-db:  ## Explore vector store contents interactively
+	PYTHONPATH=. python3 explore_vector_store.py
+
+inspect-db:  ## Inspect vector store (legacy)
+	PYTHONPATH=. python3 inspect_vector_store.py
+
 clean:  ## Clean generated files
 	rm -f *_pb2.py *_pb2_grpc.py
 	rm -rf __pycache__ server/__pycache__ server/tools/__pycache__ server/llm/__pycache__
