@@ -24,8 +24,8 @@ except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
 
 try:
-    import psycopg
-    from pgvector.psycopg import register_vector
+    import psycopg2
+    from pgvector.psycopg2 import register_vector
     POSTGRESQL_AVAILABLE = True
 except ImportError:
     POSTGRESQL_AVAILABLE = False

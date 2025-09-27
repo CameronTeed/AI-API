@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """
-Inspect the contents of the vector store
+Enhanced vector store inspector with comprehensive exploration tools
 """
 import json
 import os
 import sys
+import logging
+from typing import List, Dict, Any, Optional
 
 # Load environment variables
 try:
@@ -18,16 +20,89 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
 from server.tools.vector_store import get_vector_store
 
-def inspect_vector_store():
-    """Inspect the contents of the vector store"""
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def show_database_stats():
+    """Show comprehensive database statistics"""
     print("🔍 Vector Store Inspector")
     print("=" * 50)
     
-    # Get vector store instance
-    vs = get_vector_store()
-    
-    # Show stats
-    print("\n📊 Statistics:")
+    try:
+        vs = get_vector_store()
+        all_ideas = vs.get_all_date_ideas()
+        total_count = len(all_ideas)
+        
+        print(f"\n📊 Database Statistics:")
+        print(f"Total Date Ideas: {total_count}")
+        
+        if total_count == 0:
+            print("\n⚠️  Database is empty!")
+            print("💡 Run the scraper to add data:")
+            print("   python3 web_scraper_scrapingbee.py --city Ottawa")
+            return 0
+        
+        # Analyze by source
+        sources = {}
+        cities = {}
+        categories = {}
+        ratings = []
+        price_tiers = []
+        
+        for idea in all_ideas:
+            # Source breakdown
+            source = idea.get('source', 'unknown')
+            sources[source] = sources.get(source, 0) + 1
+            
+            # City breakdown
+            city = idea.get('city', 'unknown')
+            cities[city] = cities.get(city, 0) + 1
+            
+            # Category breakdown
+            for cat in idea.get('categories', []):
+                categories[cat] = categories.get(cat, 0) + 1
+            
+            # Rating analysis
+            rating = idea.get('rating', 0)
+            if rating > 0:
+                ratings.append(rating)
+            
+            # Price tier analysis
+            price = idea.get('price_tier', 0)
+            if price > 0:
+                price_tiers.append(price)
+        
+        print(f"\n� By Source:")
+        for source, count in sorted(sources.items(), key=lambda x: x[1], reverse=True):
+            percentage = (count / total_count) * 100
+            print(f"  {source}: {count} ({percentage:.1f}%)")
+        
+        print(f"\n🏙️ By City:")
+        for city, count in sorted(cities.items(), key=lambda x: x[1], reverse=True):
+            percentage = (count / total_count) * 100
+            print(f"  {city}: {count} ({percentage:.1f}%)")
+        
+        print(f"\n🏷️ Top Categories:")
+        for category, count in sorted(categories.items(), key=lambda x: x[1], reverse=True)[:10]:
+            percentage = (count / total_count) * 100
+            print(f"  {category}: {count} ({percentage:.1f}%)")
+        
+        if ratings:
+            avg_rating = sum(ratings) / len(ratings)
+            print(f"\n⭐ Rating Analysis:")
+            print(f"  Average Rating: {avg_rating:.2f}/5.0")
+            print(f"  Ideas with Ratings: {len(ratings)}/{total_count}")
+        
+        if price_tiers:
+            avg_price = sum(price_tiers) / len(price_tiers)
+            print(f"\n� Price Analysis:")
+            print(f"  Average Price Tier: {avg_price:.1f}/5.0")
+        
+        return total_count
+        
+    except Exception as e:
+        print(f"❌ Error inspecting vector store: {e}")
+        return 0
     stats = vs.get_stats()
     for key, value in stats.items():
         print(f"  {key}: {value}")
