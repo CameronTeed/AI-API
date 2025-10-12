@@ -44,6 +44,11 @@ class AiOrchestratorStub(object):
                 request_serializer=chat__service__pb2.KillChatRequest.SerializeToString,
                 response_deserializer=chat__service__pb2.KillChatResponse.FromString,
                 _registered_method=True)
+        self.GetChatHistory = channel.unary_unary(
+                '/dateplanner.v1.AiOrchestrator/GetChatHistory',
+                request_serializer=chat__service__pb2.ChatHistoryRequest.SerializeToString,
+                response_deserializer=chat__service__pb2.ChatHistoryResponse.FromString,
+                _registered_method=True)
         self.HealthCheck = channel.unary_unary(
                 '/dateplanner.v1.AiOrchestrator/HealthCheck',
                 request_serializer=chat__service__pb2.HealthCheckRequest.SerializeToString,
@@ -68,6 +73,13 @@ class AiOrchestratorServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetChatHistory(self, request, context):
+        """Get chat history for a session or user
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def HealthCheck(self, request, context):
         """Health check endpoint
         """
@@ -87,6 +99,11 @@ def add_AiOrchestratorServicer_to_server(servicer, server):
                     servicer.KillChat,
                     request_deserializer=chat__service__pb2.KillChatRequest.FromString,
                     response_serializer=chat__service__pb2.KillChatResponse.SerializeToString,
+            ),
+            'GetChatHistory': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetChatHistory,
+                    request_deserializer=chat__service__pb2.ChatHistoryRequest.FromString,
+                    response_serializer=chat__service__pb2.ChatHistoryResponse.SerializeToString,
             ),
             'HealthCheck': grpc.unary_unary_rpc_method_handler(
                     servicer.HealthCheck,
@@ -148,6 +165,33 @@ class AiOrchestrator(object):
             '/dateplanner.v1.AiOrchestrator/KillChat',
             chat__service__pb2.KillChatRequest.SerializeToString,
             chat__service__pb2.KillChatResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetChatHistory(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dateplanner.v1.AiOrchestrator/GetChatHistory',
+            chat__service__pb2.ChatHistoryRequest.SerializeToString,
+            chat__service__pb2.ChatHistoryResponse.FromString,
             options,
             channel_credentials,
             insecure,

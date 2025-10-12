@@ -15,8 +15,14 @@ test-setup:  ## Test the setup
 test:  ## Run tests
 	pytest tests/ -v
 
+test-enhanced:  ## Test enhanced chat system with agent tools
+	PYTHONPATH=. python3 test_enhanced_system.py
+
 start-server:  ## Start the AI Orchestrator server
 	PYTHONPATH=. python3 -m server.main
+
+start-enhanced:  ## Start the enhanced AI Orchestrator server with agent tools and chat storage
+	PYTHONPATH=. python3 -m server.enhanced_main
 
 example-client:  ## Run the example client (server must be running)
 	PYTHONPATH=. python3 example_client.py
@@ -27,39 +33,36 @@ test-kill-client:  ## Test the KillChat and HealthCheck endpoints
 kill-server:  ## Kill any running AI Orchestrator server processes
 	@echo "🔪 Killing AI Orchestrator server processes..."
 	@pkill -f "python3 -m server.main" || echo "No server processes found"
-	@pkill -f "server.main" || echo "No additional server processes found"
+	@pkill -f "python3 -m server.enhanced_main" || echo "No enhanced server processes found"
+	@pkill -f "server.main\|server.enhanced_main" || echo "No additional server processes found"
 	@echo "✅ Server kill command completed"
 
 health-check:  ## Check if the server is healthy (requires grpcurl)
 	@echo "🩺 Checking server health..."
 	@grpcurl -plaintext localhost:7000 dateplanner.v1.AiOrchestrator/HealthCheck || echo "❌ Health check failed - server may not be running or grpcurl not installed"
 
-test-scrapingbee:  ## Test ScrapingBee integration
-	PYTHONPATH=. python3 test_scrapingbee.py
+setup-enhanced-chat:  ## Setup enhanced chat system with agent tools
+	PYTHONPATH=. python3 setup_enhanced_chat.py
 
-scrape-old:  ## Run old web scraper (direct scraping)
-	PYTHONPATH=. python3 web_scraper.py --city Ottawa --max-per-source 5 --export-json
-
-scrape-scrapingbee:  ## Run ScrapingBee web scraper with Google Places
-	PYTHONPATH=. python3 web_scraper_scrapingbee.py --city Ottawa --max-per-source 5 --export-json
-
-scrape-scrapingbee-db:  ## Run ScrapingBee scraper and save to database
-	PYTHONPATH=. python3 web_scraper_scrapingbee.py --city Ottawa --max-per-source 8 --export-json
-
-scrape-usage:  ## Check ScrapingBee API usage
-	PYTHONPATH=. python3 web_scraper_scrapingbee.py --usage-info
+web-ui:  ## Start the web UI for data management
+	PYTHONPATH=. python3 web_ui.py
 
 explore-db:  ## Explore vector store contents interactively
 	PYTHONPATH=. python3 explore_vector_store.py
 
-inspect-db:  ## Inspect vector store (legacy)
+inspect-db:  ## Inspect vector store statistics
 	PYTHONPATH=. python3 inspect_vector_store.py
 
 clean:  ## Clean generated files
 	rm -f *_pb2.py *_pb2_grpc.py
 	rm -rf __pycache__ server/__pycache__ server/tools/__pycache__ server/llm/__pycache__
 	rm -rf .pytest_cache
+	rm -f scraped_*.json simplified_*.json
 
 setup: install compile-protos test-setup  ## Full setup (install, compile, test)
 
+setup-enhanced: install compile-protos setup-enhanced-chat  ## Setup enhanced features with agent tools
+
 dev: compile-protos start-server  ## Development mode (compile and start server)
+
+dev-enhanced: compile-protos start-enhanced  ## Enhanced development mode (compile and start enhanced server)
