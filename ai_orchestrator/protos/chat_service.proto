@@ -90,12 +90,29 @@ message HealthCheckResponse {
   map<string, string> details = 4;   // service details
 }
 
+message ChatHistoryRequest {
+  string session_id = 1;             // Session ID to get history for
+  string user_id = 2;                // Optional: User ID for cross-session search
+  string search_query = 3;           // Optional: Search query to filter messages
+  int32 limit = 4;                   // Maximum number of messages to return (default 20)
+}
+
+message ChatHistoryResponse {
+  bool success = 1;
+  string error_message = 2;
+  repeated ChatMessage messages = 3;
+  int32 total_count = 4;
+}
+
 service AiOrchestrator {
   // Bidirectional streaming: client sends one ChatRequest; server streams ChatDelta
   rpc Chat(stream ChatRequest) returns (stream ChatDelta);
   
   // Kill/terminate an active chat session
   rpc KillChat(KillChatRequest) returns (KillChatResponse);
+  
+  // Get chat history for a session or user
+  rpc GetChatHistory(ChatHistoryRequest) returns (ChatHistoryResponse);
   
   // Health check endpoint
   rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);

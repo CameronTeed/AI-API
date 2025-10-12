@@ -13,6 +13,18 @@ load_dotenv()
 # Set up logging
 logger = logging.getLogger(__name__)
 
+# Try to import async psycopg for enhanced features
+try:
+    import psycopg
+    from psycopg_pool import ConnectionPool
+    ASYNC_SUPPORT = True
+except ImportError:
+    ASYNC_SUPPORT = False
+    logger.warning("psycopg (async) not available - enhanced features will use sync fallback")
+
+# Set up logging
+logger = logging.getLogger(__name__)
+
 # Fetch variables
 USER = os.getenv("DB_USER")
 PASSWORD = os.getenv("DB_PASSWORD")
@@ -37,6 +49,9 @@ class DatabaseConfig:
         # Connection pool
         self._pool = None
         self._pool_lock = threading.Lock()
+        
+        # Async connection pool (for enhanced features)
+        self._async_pool = None
         
         # Connection parameters for session pooling optimization
         self.connection_params = {
@@ -126,6 +141,37 @@ class DatabaseConfig:
                 self._pool.closeall()
                 self._pool = None
                 logger.info("Connection pool closed")
+    
+    async def get_async_pool(self):
+        """Get or create async connection pool for enhanced features"""
+        if not ASYNC_SUPPORT:
+            raise ImportError("Async database support not available. Install psycopg[binary] and psycopg-pool")
+        
+        if self._async_pool is None:
+            try:
+                # Create async connection pool
+                self._async_pool = ConnectionPool(
+                    self.connection_string,
+                    min_size=self.min_connections,
+                    max_size=self.max_connections,
+                    kwargs={
+                        'autocommit': True
+                    }
+                )
+                await self._async_pool.open()
+                logger.info(f"Initialized async connection pool with {self.min_connections}-{self.max_connections} connections")
+            except Exception as e:
+                logger.error(f"Failed to initialize async connection pool: {e}")
+                raise
+        
+        return self._async_pool
+    
+    async def close_async_pool(self):
+        """Close the async connection pool"""
+        if self._async_pool:
+            await self._async_pool.close()
+            self._async_pool = None
+            logger.info("Async connection pool closed")
 
 # Global instance
 _db_config: Optional[DatabaseConfig] = None
@@ -136,6 +182,11 @@ def get_db_config() -> DatabaseConfig:
     if _db_config is None:
         _db_config = DatabaseConfig()
     return _db_config
+
+async def get_db_pool():
+    """Get the async database pool for enhanced features"""
+    config = get_db_config()
+    return await config.get_async_pool()
 
 def test_connection() -> bool:
     """Test database connectivity"""

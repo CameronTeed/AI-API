@@ -14,6 +14,8 @@ sentence-transformers>=2.2.0
 numpy>=1.21.0
 # PostgreSQL and vector support
 psycopg[binary]>=3.1.0
+psycopg-pool>=3.1.0
+psycopg2-binary>=2.9.0  # Legacy sync support
 pgvector>=0.2.0
 # REST API wrapper (optional)
 fastapi>=0.104.0
@@ -22,9 +24,17 @@ uvicorn>=0.24.0
 jinja2>=3.1.0
 python-multipart>=0.0.6
 # Web scraping dependencies
-# Web scraping dependencies
 requests>=2.31.0
 beautifulsoup4>=4.12.0
 feedparser>=6.0.0
 scrapingbee>=1.7.0
 googlemaps>=4.10.0
+# Enhanced features dependencies
+# PostGIS support (if needed for local development)
+# Note: PostGIS extension must be installed at the database level
+# Geospatial libraries
+geopy>=2.3.0
+# Caching and performance
+redis>=4.5.0  # Optional for advanced caching
+# Additional search providers (optional)
+duckduckgo-search>=3.8.0  # For DuckDuckGo search support

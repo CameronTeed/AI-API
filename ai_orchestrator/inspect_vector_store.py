@@ -38,8 +38,9 @@ def show_database_stats():
         
         if total_count == 0:
             print("\n⚠️  Database is empty!")
-            print("💡 Run the scraper to add data:")
-            print("   python3 web_scraper_scrapingbee.py --city Ottawa")
+            print("💡 Use the enhanced chat system or web UI to add data:")
+            print("   python3 -m server.enhanced_main")
+            print("   # Then visit http://localhost:7000/scrape")
             return 0
         
         # Analyze by source
