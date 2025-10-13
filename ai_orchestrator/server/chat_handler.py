@@ -8,6 +8,8 @@ from grpc import aio
 
 from .tools.vector_store import get_vector_store
 from .tools.web_search import get_web_client
+from .tools.agent_tools import get_agent_tools
+from .tools.chat_context_storage import get_chat_storage
 from .llm.engine import LLMEngine
 from .schemas import StructuredAnswer, Option, Citation
 from .utils import price_tier_to_symbol, build_logistics, detect_source, safe_url
@@ -18,32 +20,51 @@ import chat_service_pb2_grpc
 
 logger = logging.getLogger(__name__)
 
-class ChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
-    """Handles AI orchestrator chat requests"""
+class EnhancedChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
+    """Enhanced AI orchestrator chat handler with agent tools and context storage"""
     
     def __init__(self):
-        logger.debug("🔧 Initializing ChatHandler")
+        logger.debug("🔧 Initializing Enhanced ChatHandler")
         self.llm_engine = LLMEngine()
-        logger.debug("✅ LLMEngine initialized")
+        logger.debug("✅ Enhanced LLMEngine initialized")
+        
         self.vector_store = get_vector_store()
         logger.debug("✅ Vector store initialized")
+        
         self.web_client = get_web_client()
         logger.debug("✅ Web client initialized")
+        
+        # Initialize enhanced components
+        self.agent_tools = get_agent_tools()
+        logger.debug("✅ Agent tools initialized")
+        
+        self.chat_storage = get_chat_storage()
+        logger.debug("✅ Chat context storage initialized")
+        
         # Track active chat sessions for kill functionality
         self.active_sessions = {}
-        logger.info("🎯 ChatHandler fully initialized")
+        logger.info("🎯 Enhanced ChatHandler fully initialized")
+
+    async def setup_storage(self):
+        """Setup chat storage tables"""
+        try:
+            await self.chat_storage.ensure_tables_exist()
+            logger.info("✅ Chat storage tables setup complete")
+        except Exception as e:
+            logger.error(f"❌ Failed to setup chat storage: {e}")
 
     async def Chat(
         self, 
         request_iterator: AsyncIterator[chat_service_pb2.ChatRequest],
         context: aio.ServicerContext
     ) -> AsyncIterator[chat_service_pb2.ChatDelta]:
-        """Handle bidirectional streaming chat"""
+        """Handle bidirectional streaming chat with enhanced agent tools"""
         
-        logger.info("🎯 [CHAT_START] New chat session initiated")
+        logger.info("🎯 [ENHANCED_CHAT_START] New enhanced chat session initiated")
         
         # Will get session ID from the request
         session_id = None
+        user_id = None
         
         try:
             # Get the first (and expected only) request from the stream
@@ -53,7 +74,9 @@ class ChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
                     request = req
                     # Extract session ID from request (fallback to generated if not provided)
                     session_id = req.session_id if req.session_id else f"session_{int(time.time())}_{id(context)}"
-                    logger.info(f"📨 [REQUEST_RECEIVED] Chat request with {len(req.messages)} messages, session_id: {session_id}")
+                    # Extract user ID if available
+                    user_id = getattr(req, 'user_id', None) or 'anonymous'
+                    logger.info(f"📨 [REQUEST_RECEIVED] Enhanced chat request with {len(req.messages)} messages, session_id: {session_id}")
                     break  # We only process the first request
             
             if not request:
@@ -64,15 +87,26 @@ class ChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
                 )
                 return
 
+            # Setup chat session in storage
+            await self.chat_storage.create_session(
+                session_id=session_id,
+                user_id=user_id,
+                metadata={
+                    'client_info': 'enhanced_chat_handler',
+                    'start_time': time.time()
+                }
+            )
+
             # Track this session
             self.active_sessions[session_id] = {
                 'context': context,
-                'start_time': time.time()
+                'start_time': time.time(),
+                'user_id': user_id
             }
-            logger.info(f"📊 [SESSION_TRACKING] Session {session_id} added to active sessions")
+            logger.info(f"📊 [SESSION_TRACKING] Enhanced session {session_id} added to active sessions")
 
             # LOG COMPLETE REQUEST DETAILS
-            logger.info("📋 [REQUEST_DETAILS] Complete request breakdown:")
+            logger.info("📋 [REQUEST_DETAILS] Complete enhanced request breakdown:")
             
             # Extract request data
             messages = []
@@ -106,7 +140,7 @@ class ChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
             else:
                 logger.info("  📍 User location: None")
 
-            # Prepare tool functions
+            # Prepare tool functions (legacy compatibility)
             async def vector_search_wrapper(**kwargs):
                 """Wrapper to make vector store search async-compatible"""
                 logger.info(f"🔍 [VECTOR_SEARCH_REQUEST] Args: {kwargs}")
@@ -125,8 +159,8 @@ class ChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
                 logger.info(f"📊 [WEB_SEARCH_RESPONSE] Returned {len(results.get('items', []))} results")
                 return results
 
-            # Stream the LLM response with buffering to reduce message count
-            logger.info("🤖 [LLM_STREAM_START] Starting LLM chat stream")
+            # Stream the LLM response with enhanced agent tools
+            logger.info("🤖 [ENHANCED_LLM_STREAM_START] Starting enhanced LLM chat stream with agent tools")
             full_response = ""
             chunk_count = 0
             buffer = ""
@@ -136,6 +170,9 @@ class ChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
                 messages=messages,
                 vector_search_func=vector_search_wrapper,
                 web_search_func=web_search_wrapper,
+                agent_tools=self.agent_tools,  # Pass enhanced agent tools
+                chat_storage=self.chat_storage,  # Pass chat context storage
+                session_id=session_id,
                 constraints=constraints,
                 user_location=user_location
             ):
@@ -166,7 +203,7 @@ class ChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
                 )
                 yield delta
 
-            logger.info(f"✅ [LLM_STREAM_COMPLETE] Raw chunks received: {chunk_count}, Total length: {len(full_response)}")
+            logger.info(f"✅ [ENHANCED_LLM_STREAM_COMPLETE] Raw chunks received: {chunk_count}, Total length: {len(full_response)}")
             logger.info(f"📝 [FULL_TEXT_RESPONSE] Complete text: {full_response}")
             
             # Try to extract structured answer from the full response
@@ -200,14 +237,14 @@ class ChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
                 yield delta
 
             # Send completion signal
-            logger.info("🏁 [CHAT_END] Sending final done signal")
+            logger.info("🏁 [ENHANCED_CHAT_END] Sending final done signal")
             delta = chat_service_pb2.ChatDelta(session_id=session_id, done=True)
             yield delta
             
-            logger.info(f"🎉 [SESSION_COMPLETE] Chat session completed successfully. Total response length: {len(full_response)}")
+            logger.info(f"🎉 [ENHANCED_SESSION_COMPLETE] Enhanced chat session completed successfully. Total response length: {len(full_response)}")
 
         except Exception as e:
-            logger.error(f"💥 [CHAT_ERROR] Chat failed: {e}", exc_info=True)
+            logger.error(f"💥 [ENHANCED_CHAT_ERROR] Enhanced chat failed: {e}", exc_info=True)
             await context.abort(
                 grpc.StatusCode.INTERNAL, 
                 f"Internal error: {str(e)}"
@@ -216,18 +253,22 @@ class ChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
             # Clean up session tracking
             if session_id in self.active_sessions:
                 del self.active_sessions[session_id]
-                logger.info(f"🧹 [SESSION_CLEANUP] Session {session_id} removed from active sessions")
+                logger.info(f"🧹 [SESSION_CLEANUP] Enhanced session {session_id} removed from active sessions")
+            
+            # Deactivate session in storage
+            if session_id and self.chat_storage:
+                await self.chat_storage.deactivate_session(session_id)
 
     def _extract_structured_answer(self, response_text: str) -> Optional[chat_service_pb2.StructuredAnswer]:
         """Extract structured answer from LLM response"""
         try:
-            logger.info("🔧 [EXTRACT_PARSING] Calling LLM engine to parse structured answer")
+            logger.info("🔧 [EXTRACT_PARSING] Calling enhanced LLM engine to parse structured answer")
             
             # Try to parse JSON from the response
             structured_data = self.llm_engine.parse_structured_answer(response_text)
             
             if not structured_data:
-                logger.warning("⚠️ [EXTRACT_EMPTY] LLM engine returned empty structured data")
+                logger.warning("⚠️ [EXTRACT_EMPTY] Enhanced LLM engine returned empty structured data")
                 return None
 
             logger.info(f"📋 [EXTRACT_DATA] Parsed data: summary='{structured_data.get('summary', '')[:50]}...', options={len(structured_data.get('options', []))}")
@@ -323,6 +364,72 @@ class ChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
             logger.error(f"💥 [EXTRACT_ERROR] Could not extract structured answer: {e}", exc_info=True)
             return None
 
+    async def GetChatHistory(
+        self, 
+        request: chat_service_pb2.ChatHistoryRequest,
+        context: aio.ServicerContext
+    ) -> chat_service_pb2.ChatHistoryResponse:
+        """Get chat history for a session or user"""
+        
+        logger.info(f"📚 [CHAT_HISTORY] History request for session: {request.session_id}")
+        
+        try:
+            if request.session_id:
+                # Get history for specific session
+                messages = await self.chat_storage.get_session_messages(
+                    session_id=request.session_id,
+                    limit=request.limit if request.limit > 0 else None,
+                    include_system=False
+                )
+                
+                history_messages = []
+                for msg in messages:
+                    history_message = chat_service_pb2.ChatMessage(
+                        role=msg['role'],
+                        content=msg['content'],
+                        timestamp=msg['timestamp']
+                    )
+                    history_messages.append(history_message)
+                
+                return chat_service_pb2.ChatHistoryResponse(
+                    success=True,
+                    messages=history_messages,
+                    total_count=len(history_messages)
+                )
+            
+            else:
+                # Search across user's chat history
+                search_results = await self.chat_storage.search_chat_history(
+                    user_id=getattr(request, 'user_id', None),
+                    query=getattr(request, 'search_query', None),
+                    limit=request.limit if request.limit > 0 else 20
+                )
+                
+                history_messages = []
+                for result in search_results:
+                    if result['message_content']:
+                        history_message = chat_service_pb2.ChatMessage(
+                            role=result['message_role'],
+                            content=result['message_content'],
+                            timestamp=result['message_timestamp']
+                        )
+                        history_messages.append(history_message)
+                
+                return chat_service_pb2.ChatHistoryResponse(
+                    success=True,
+                    messages=history_messages,
+                    total_count=len(history_messages)
+                )
+                
+        except Exception as e:
+            logger.error(f"💥 [CHAT_HISTORY_ERROR] Error retrieving chat history: {e}", exc_info=True)
+            return chat_service_pb2.ChatHistoryResponse(
+                success=False,
+                error_message=f"Error retrieving chat history: {str(e)}",
+                messages=[],
+                total_count=0
+            )
+
     async def KillChat(
         self, 
         request: chat_service_pb2.KillChatRequest,
@@ -330,7 +437,7 @@ class ChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
     ) -> chat_service_pb2.KillChatResponse:
         """Kill/terminate an active chat session"""
         
-        logger.info(f"🔪 [KILL_CHAT] Kill request received for session: {request.session_id}")
+        logger.info(f"🔪 [KILL_ENHANCED_CHAT] Kill request received for session: {request.session_id}")
         
         try:
             session_id = request.session_id if request.session_id else "default"
@@ -349,23 +456,26 @@ class ChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
                 # Remove from active sessions
                 del self.active_sessions[session_id]
                 
-                logger.info(f"✅ [KILL_SUCCESS] Session {session_id} terminated successfully")
+                # Deactivate in storage
+                await self.chat_storage.deactivate_session(session_id)
+                
+                logger.info(f"✅ [KILL_SUCCESS] Enhanced session {session_id} terminated successfully")
                 return chat_service_pb2.KillChatResponse(
                     success=True,
-                    message=f"Chat session '{session_id}' terminated successfully. Reason: {reason}"
+                    message=f"Enhanced chat session '{session_id}' terminated successfully. Reason: {reason}"
                 )
             else:
-                logger.warning(f"⚠️ [KILL_WARNING] Session {session_id} not found")
+                logger.warning(f"⚠️ [KILL_WARNING] Enhanced session {session_id} not found")
                 return chat_service_pb2.KillChatResponse(
                     success=False,
-                    message=f"Chat session '{session_id}' not found or already terminated"
+                    message=f"Enhanced chat session '{session_id}' not found or already terminated"
                 )
                 
         except Exception as e:
-            logger.error(f"💥 [KILL_ERROR] Error killing chat session: {e}", exc_info=True)
+            logger.error(f"💥 [KILL_ERROR] Error killing enhanced chat session: {e}", exc_info=True)
             return chat_service_pb2.KillChatResponse(
                 success=False,
-                message=f"Error terminating chat session: {str(e)}"
+                message=f"Error terminating enhanced chat session: {str(e)}"
             )
 
     async def HealthCheck(
@@ -373,24 +483,24 @@ class ChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
         request: chat_service_pb2.HealthCheckRequest,
         context: aio.ServicerContext
     ) -> chat_service_pb2.HealthCheckResponse:
-        """Health check endpoint to verify service status"""
+        """Health check endpoint to verify enhanced service status"""
         
-        logger.info("🩺 [HEALTH_CHECK] Health check requested")
+        logger.info("🩺 [ENHANCED_HEALTH_CHECK] Enhanced health check requested")
         
         try:
             # Check various components
             health_details = {}
             overall_status = "healthy"
             
-            # Check LLM engine
+            # Check enhanced LLM engine
             try:
                 if self.llm_engine:
-                    health_details["llm_engine"] = "healthy"
+                    health_details["enhanced_llm_engine"] = "healthy"
                 else:
-                    health_details["llm_engine"] = "unhealthy"
+                    health_details["enhanced_llm_engine"] = "unhealthy"
                     overall_status = "degraded"
             except Exception as e:
-                health_details["llm_engine"] = f"error: {str(e)}"
+                health_details["enhanced_llm_engine"] = f"error: {str(e)}"
                 overall_status = "degraded"
             
             # Check vector store
@@ -415,13 +525,35 @@ class ChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
                 health_details["web_client"] = f"error: {str(e)}"
                 overall_status = "degraded"
             
+            # Check agent tools
+            try:
+                if self.agent_tools:
+                    health_details["agent_tools"] = "healthy"
+                else:
+                    health_details["agent_tools"] = "unhealthy"
+                    overall_status = "degraded"
+            except Exception as e:
+                health_details["agent_tools"] = f"error: {str(e)}"
+                overall_status = "degraded"
+            
+            # Check chat storage
+            try:
+                if self.chat_storage:
+                    health_details["chat_storage"] = "healthy"
+                else:
+                    health_details["chat_storage"] = "unhealthy"
+                    overall_status = "degraded"
+            except Exception as e:
+                health_details["chat_storage"] = f"error: {str(e)}"
+                overall_status = "degraded"
+            
             # Active sessions count
             health_details["active_sessions"] = str(len(self.active_sessions))
             
             timestamp = int(time.time())
-            message = f"Service is {overall_status}"
+            message = f"Enhanced service is {overall_status}"
             
-            logger.info(f"✅ [HEALTH_CHECK_COMPLETE] Status: {overall_status}, Active sessions: {len(self.active_sessions)}")
+            logger.info(f"✅ [ENHANCED_HEALTH_CHECK_COMPLETE] Status: {overall_status}, Active sessions: {len(self.active_sessions)}")
             
             return chat_service_pb2.HealthCheckResponse(
                 status=overall_status,
@@ -431,10 +563,24 @@ class ChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
             )
             
         except Exception as e:
-            logger.error(f"💥 [HEALTH_CHECK_ERROR] Health check failed: {e}", exc_info=True)
+            logger.error(f"💥 [ENHANCED_HEALTH_CHECK_ERROR] Enhanced health check failed: {e}", exc_info=True)
             return chat_service_pb2.HealthCheckResponse(
                 status="unhealthy",
-                message=f"Health check failed: {str(e)}",
+                message=f"Enhanced health check failed: {str(e)}",
                 timestamp=int(time.time()),
                 details={"error": str(e)}
             )
+
+    async def cleanup(self):
+        """Cleanup resources"""
+        try:
+            if self.agent_tools:
+                await self.agent_tools.close()
+            if self.chat_storage:
+                await self.chat_storage.close()
+            logger.info("🧹 Enhanced ChatHandler cleanup completed")
+        except Exception as e:
+            logger.error(f"Error during enhanced cleanup: {e}")
+
+# Legacy handler for backwards compatibility
+ChatHandler = EnhancedChatHandler
