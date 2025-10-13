@@ -9,7 +9,7 @@ from grpc import aio
 from dotenv import load_dotenv
 
 from .interceptors import AuthInterceptor, LoggingInterceptor
-from .chat_handler import ChatHandler
+from .chat_handler import EnhancedChatHandler
 
 # Import generated protobuf files
 import chat_service_pb2_grpc
@@ -31,7 +31,7 @@ logging.getLogger('grpc').setLevel(logging.DEBUG)
 logging.getLogger('sentence_transformers').setLevel(logging.INFO)  # Keep this less verbose
 
 logger = logging.getLogger(__name__)
-logger.debug("🔧 Logging configuration initialized")
+logger.debug("🔧 Enhanced logging configuration initialized")
 
 async def serve():
     """Start the gRPC server"""
@@ -52,6 +52,8 @@ async def serve():
     logger.debug(f"   - Java target: {java_target}")
     logger.debug(f"   - Search provider: {search_provider}")
     logger.debug(f"   - Default city: {default_city}")
+    logger.debug(f"   - Google Places API: {'✅' if os.getenv('GOOGLE_PLACES_API_KEY') else '❌'}")
+    logger.debug(f"   - Database: {os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}")
     
     # Validate required environment variables
     required_vars = ['OPENAI_API_KEY']
@@ -69,8 +71,17 @@ async def serve():
         interceptors=[logging_interceptor]  # Only logging for now
     )
     
-    # Add servicer
-    chat_handler = ChatHandler()
+    # Add servicer with enhanced features
+    logger.info("🚀 Using Enhanced ChatHandler with agent tools and context storage")
+    chat_handler = EnhancedChatHandler()
+    
+    # Setup enhanced features
+    try:
+        await chat_handler.setup_storage()
+        logger.info("✅ Enhanced chat storage setup completed")
+    except Exception as e:
+        logger.warning(f"⚠️ Enhanced storage setup failed, continuing anyway: {e}")
+    
     chat_service_pb2_grpc.add_AiOrchestratorServicer_to_server(chat_handler, server)
     
     # Bind to port
@@ -78,10 +89,11 @@ async def serve():
     server.add_insecure_port(listen_addr)
     
     # Start server
-    logger.info(f"Starting AI Orchestrator server on {listen_addr}")
-    logger.info(f"Java gRPC target: {os.getenv('JAVA_GRPC_TARGET', 'localhost:9090')}")
-    logger.info(f"Search provider: {os.getenv('SEARCH_PROVIDER', 'serpapi')}")
-    logger.info(f"Default city: {os.getenv('DEFAULT_CITY', 'Ottawa')}")
+    logger.info(f"🎯 Starting AI Orchestrator server on {listen_addr}")
+    logger.info(f"🔗 Java gRPC target: {os.getenv('JAVA_GRPC_TARGET', 'localhost:9090')}")
+    logger.info(f"🔍 Search provider: {os.getenv('SEARCH_PROVIDER', 'serpapi')}")
+    logger.info(f"📍 Default city: {os.getenv('DEFAULT_CITY', 'Ottawa')}")
+    logger.info(f"🤖 Chat mode: Enhanced with Agent Tools")
     
     await server.start()
     
@@ -89,6 +101,9 @@ async def serve():
         await server.wait_for_termination()
     except KeyboardInterrupt:
         logger.info("Received interrupt, shutting down...")
+        if hasattr(chat_handler, 'cleanup'):
+            logger.info("🧹 Cleaning up resources...")
+            await chat_handler.cleanup()
         await server.stop(5)
 
 def main():
@@ -102,12 +117,14 @@ def main():
             try:
                 import uvloop
                 uvloop.install()
+                logger.debug("✅ Using uvloop for enhanced performance")
             except ImportError:
+                logger.debug("ℹ️ uvloop not available, using default asyncio")
                 pass
         
         asyncio.run(serve())
     except Exception as e:
-        logger.error(f"Server failed to start: {e}")
+        logger.error(f"💥 Server failed to start: {e}")
         sys.exit(1)
 
 if __name__ == '__main__':

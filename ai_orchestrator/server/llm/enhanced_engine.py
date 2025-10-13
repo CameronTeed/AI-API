@@ -4,6 +4,7 @@ import logging
 from typing import List, Dict, Any, Optional, AsyncIterator
 from openai import OpenAI
 from .system_prompt import SYSTEM_PROMPT
+from .reasoning_agent import ReasoningAgent
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,9 @@ class LLMEngine:
         logger.debug(f"🔑 Using OpenAI API key: {api_key[:10]}...")
         self.client = OpenAI(api_key=api_key)
         logger.debug("✅ OpenAI client initialized")
+        
+        # Initialize reasoning agent (will be set up with tools manager later)
+        self.reasoning_agent = None
         
         logger.debug("⚙️  Setting up enhanced tool definitions with agent capabilities")
         self.tools = [
@@ -220,6 +224,19 @@ class LLMEngine:
                 }
             }
         ]
+    
+    def setup_reasoning_agent(self, agent_tools, vector_search_func=None, web_search_func=None):
+        """Set up the reasoning agent with tools manager"""
+        if agent_tools:
+            self.reasoning_agent = ReasoningAgent(
+                llm_client=self.client,
+                tools_manager=agent_tools,
+                vector_search_func=vector_search_func,
+                web_search_func=web_search_func
+            )
+            logger.debug("🧠 ReasoningAgent initialized and ready")
+        else:
+            logger.warning("⚠️  Agent tools not provided, reasoning agent not initialized")
 
     def _trim_chat_messages(self, messages, max_chars=50000):
         """Trim chat messages to prevent token limit issues"""
@@ -298,6 +315,43 @@ class LLMEngine:
                 context += f"Location: {json.dumps(user_location)}."
             chat_messages.append({"role": "system", "content": context})
             logger.debug(f"📋 Added context: {context}")
+        
+        # Setup reasoning agent if available and not already initialized
+        if agent_tools and not self.reasoning_agent:
+            self.setup_reasoning_agent(agent_tools, vector_search_func, web_search_func)
+        
+        # Check if we should use advanced reasoning for complex queries
+        user_query = messages[-1].get('content', '') if messages else ''
+        use_reasoning = (
+            self.reasoning_agent and 
+            agent_tools and 
+            len(user_query) > 20 and  # More than a simple query
+            any(keyword in user_query.lower() for keyword in [
+                'find', 'search', 'where', 'what', 'recommend', 'suggest', 'plan', 'ideas', 'options'
+            ])
+        )
+        
+        if use_reasoning:
+            logger.info("🧠 Using advanced reasoning agent for complex query")
+            async for chunk in self.reasoning_agent.plan_execute_reflect(
+                query=user_query,
+                constraints=constraints,
+                user_location=user_location
+            ):
+                yield chunk
+            
+            # Store assistant response if chat storage is available
+            if chat_storage and session_id:
+                # Note: We'd need to collect the full response to store it
+                # For now, just mark that reasoning was used
+                await chat_storage.store_message(
+                    session_id=session_id,
+                    role='assistant',
+                    content="[Advanced reasoning response provided]",
+                    metadata={'used_reasoning_agent': True, 'tool_calls': []}
+                )
+            
+            return
 
         # Add aggressive multi-tool instruction
         multi_tool_instruction = """
