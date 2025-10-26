@@ -243,7 +243,7 @@ class IntelligentCrawler:
             # Parse and extract content using BeautifulSoup
             soup = BeautifulSoup(content, 'html.parser')
             
-            # Extract comprehensive venue information
+            # Extract comprehensive venue information with date-planning focus
             extracted_info = {
                 'venue_name': venue_name or self._extract_venue_name(soup),
                 'url': url,
@@ -254,7 +254,9 @@ class IntelligentCrawler:
                 'pricing': self._extract_pricing(soup, content),
                 'events': self._extract_events(soup),
                 'highlights': self._extract_highlights(soup, content),
-                'sledding_specific': self._extract_sledding_info(soup, content),  # New: sledding-specific extraction
+                'sledding_specific': self._extract_sledding_info(soup, content),
+                'images': self._extract_images(soup, url),  # New: Image extraction for visual appeal
+                'date_planning': self._extract_date_planning_info(soup, content),  # New: Date-specific info
                 'source': 'extracted'
             }
             
@@ -1107,14 +1109,33 @@ class IntelligentCrawler:
 
     def _extract_sledding_info(self, soup: BeautifulSoup, content: str) -> Dict[str, Any]:
         """
-        Extract sledding-specific information from web pages
+        Extract sledding-specific information from web pages with date-planning focus
         """
         sledding_info = {
             'hills_mentioned': [],
             'locations': [],
             'safety_info': [],
             'best_for': [],
-            'features': []
+            'features': [],
+            'date_suitability': {
+                'romantic_factor': 0,
+                'couple_friendly': False,
+                'scenic_views': False,
+                'instagram_worthy': False
+            },
+            'logistics': {
+                'parking': [],
+                'accessibility': [],
+                'nearby_amenities': []
+            },
+            'cost_info': {
+                'free': False,
+                'paid': False,
+                'equipment_rental': False,
+                'cost_mentions': []
+            },
+            'best_times': [],
+            'unique_features': []
         }
         
         text_content = content.lower()
@@ -1177,7 +1198,263 @@ class IntelligentCrawler:
         for key in ['features', 'best_for']:
             sledding_info[key] = list(dict.fromkeys(sledding_info[key]))[:3]
         
+        # Enhanced date-planning extraction
+        self._extract_date_suitability(content, sledding_info)
+        self._extract_logistics_info(content, sledding_info)
+        self._extract_cost_info(content, sledding_info)
+        self._extract_timing_info(content, sledding_info)
+        self._extract_unique_features(content, sledding_info)
+        
         return sledding_info
+
+    def _extract_date_suitability(self, content: str, sledding_info: Dict) -> None:
+        """Extract information relevant to date planning"""
+        content_lower = content.lower()
+        
+        # Romance factor indicators
+        romantic_keywords = ['romantic', 'couples', 'date', 'beautiful', 'scenic', 'stunning', 'breathtaking', 'magical', 'cozy']
+        romantic_score = sum(1 for keyword in romantic_keywords if keyword in content_lower)
+        sledding_info['date_suitability']['romantic_factor'] = min(romantic_score, 5)
+        
+        # Couple-friendly indicators
+        couple_indicators = ['couple', 'two people', 'together', 'partner', 'date night', 'romantic']
+        sledding_info['date_suitability']['couple_friendly'] = any(indicator in content_lower for indicator in couple_indicators)
+        
+        # Scenic views
+        scenic_keywords = ['view', 'scenic', 'overlook', 'vista', 'beautiful', 'picturesque', 'instagram', 'photo']
+        sledding_info['date_suitability']['scenic_views'] = any(keyword in content_lower for keyword in scenic_keywords)
+        
+        # Instagram-worthy features
+        photo_keywords = ['photo', 'picture', 'instagram', 'selfie', 'snap', 'camera', 'memorable']
+        sledding_info['date_suitability']['instagram_worthy'] = any(keyword in content_lower for keyword in photo_keywords)
+
+    def _extract_logistics_info(self, content: str, sledding_info: Dict) -> None:
+        """Extract logistics information for date planning"""
+        sentences = re.split(r'[.!?]+', content)
+        
+        # Parking information
+        parking_keywords = ['parking', 'park', 'lot', 'space', 'street parking']
+        for sentence in sentences:
+            if any(keyword in sentence.lower() for keyword in parking_keywords):
+                cleaned = sentence.strip()
+                if len(cleaned) > 10 and len(cleaned) < 150 and 'parking' in cleaned.lower():
+                    sledding_info['logistics']['parking'].append(cleaned)
+        
+        # Accessibility
+        accessibility_keywords = ['accessible', 'wheelchair', 'stroller', 'easy access', 'barrier-free', 'paved']
+        for sentence in sentences:
+            if any(keyword in sentence.lower() for keyword in accessibility_keywords):
+                cleaned = sentence.strip()
+                if len(cleaned) > 10 and len(cleaned) < 150:
+                    sledding_info['logistics']['accessibility'].append(cleaned)
+        
+        # Nearby amenities (important for dates)
+        amenity_keywords = ['restaurant', 'cafe', 'coffee', 'washroom', 'bathroom', 'food', 'hot chocolate', 'warm up']
+        for sentence in sentences:
+            if any(keyword in sentence.lower() for keyword in amenity_keywords):
+                cleaned = sentence.strip()
+                if len(cleaned) > 10 and len(cleaned) < 150:
+                    sledding_info['logistics']['nearby_amenities'].append(cleaned)
+        
+        # Limit results
+        for key in sledding_info['logistics']:
+            sledding_info['logistics'][key] = sledding_info['logistics'][key][:3]
+
+    def _extract_cost_info(self, content: str, sledding_info: Dict) -> None:
+        """Extract cost information for budget planning"""
+        content_lower = content.lower()
+        
+        # Free indicators
+        free_keywords = ['free', 'no cost', 'no charge', 'complimentary', 'at no cost']
+        sledding_info['cost_info']['free'] = any(keyword in content_lower for keyword in free_keywords)
+        
+        # Paid indicators
+        paid_keywords = ['fee', 'cost', 'price', 'charge', '$', 'admission', 'ticket']
+        sledding_info['cost_info']['paid'] = any(keyword in content_lower for keyword in paid_keywords)
+        
+        # Equipment rental
+        rental_keywords = ['rental', 'rent', 'equipment', 'sled rental', 'toboggan rental', 'gear']
+        sledding_info['cost_info']['equipment_rental'] = any(keyword in content_lower for keyword in rental_keywords)
+        
+        # Cost mentions
+        cost_patterns = [
+            r'\$\d+(?:\.\d{2})?',  # Dollar amounts
+            r'free',
+            r'no charge',
+            r'admission.*\$?\d*'
+        ]
+        
+        for pattern in cost_patterns:
+            matches = re.findall(pattern, content_lower)
+            sledding_info['cost_info']['cost_mentions'].extend(matches[:3])
+
+    def _extract_timing_info(self, content: str, sledding_info: Dict) -> None:
+        """Extract best timing information for dates"""
+        sentences = re.split(r'[.!?]+', content)
+        
+        timing_keywords = ['best time', 'ideal time', 'perfect time', 'recommended', 'avoid crowds', 'busy', 'quiet', 'peaceful']
+        
+        for sentence in sentences:
+            if any(keyword in sentence.lower() for keyword in timing_keywords):
+                cleaned = sentence.strip()
+                if len(cleaned) > 15 and len(cleaned) < 200:
+                    sledding_info['best_times'].append(cleaned)
+        
+        sledding_info['best_times'] = sledding_info['best_times'][:3]
+
+    def _extract_unique_features(self, content: str, sledding_info: Dict) -> None:
+        """Extract unique features that make for memorable dates"""
+        sentences = re.split(r'[.!?]+', content)
+        
+        unique_keywords = ['unique', 'special', 'famous', 'known for', 'highlight', 'standout', 'memorable', 'experience']
+        
+        for sentence in sentences:
+            if any(keyword in sentence.lower() for keyword in unique_keywords):
+                cleaned = sentence.strip()
+                # Filter out JavaScript, HTML, and technical content
+                if (20 < len(cleaned) < 200 and 
+                    not any(js_indicator in cleaned.lower() for js_indicator in 
+                           ['<script', 'javascript', 'function', 'push(', '__tcfapi', '&lt;', '&gt;', 'atatags'])):
+                    sledding_info['unique_features'].append(cleaned)
+        
+        sledding_info['unique_features'] = sledding_info['unique_features'][:3]
+
+    def _extract_images(self, soup: BeautifulSoup, base_url: str) -> Dict[str, Any]:
+        """Extract images for visual appeal and date planning"""
+        images = {
+            'featured_images': [],
+            'gallery_images': [],
+            'total_found': 0
+        }
+        
+        # Look for featured images (hero images, main photos)
+        featured_selectors = [
+            'img[class*="hero"]', 'img[class*="featured"]', 'img[class*="banner"]',
+            'meta[property="og:image"]', 'meta[name="twitter:image"]',
+            'img[class*="main"]', 'img[id*="main"]'
+        ]
+        
+        for selector in featured_selectors:
+            elements = soup.select(selector)
+            for element in elements:
+                if element.name == 'meta':
+                    img_url = element.get('content')
+                else:
+                    img_url = element.get('src') or element.get('data-src')
+                
+                if img_url:
+                    # Make URL absolute
+                    if img_url.startswith('//'):
+                        img_url = 'https:' + img_url
+                    elif img_url.startswith('/'):
+                        from urllib.parse import urljoin
+                        img_url = urljoin(base_url, img_url)
+                    
+                    if img_url.startswith('http') and img_url not in images['featured_images']:
+                        images['featured_images'].append(img_url)
+        
+        # Look for gallery/content images
+        content_images = soup.select('img[src], img[data-src]')
+        for img in content_images[:10]:  # Limit to prevent overload
+            img_url = img.get('src') or img.get('data-src')
+            alt_text = img.get('alt', '').lower()
+            
+            # Skip small images, icons, logos
+            if any(skip in img_url.lower() for skip in ['icon', 'logo', 'avatar', 'thumb']):
+                continue
+            
+            if img_url and img_url.startswith('http'):
+                images['gallery_images'].append({
+                    'url': img_url,
+                    'alt': alt_text,
+                    'relevant': any(keyword in alt_text for keyword in ['sledding', 'hill', 'snow', 'winter', 'park'])
+                })
+        
+        images['total_found'] = len(images['featured_images']) + len(images['gallery_images'])
+        
+        # Limit results
+        images['featured_images'] = images['featured_images'][:3]
+        images['gallery_images'] = images['gallery_images'][:5]
+        
+        return images
+
+    def _extract_date_planning_info(self, soup: BeautifulSoup, content: str) -> Dict[str, Any]:
+        """Extract general date planning information"""
+        date_info = {
+            'atmosphere': {
+                'romantic': False,
+                'family_friendly': False,
+                'adventurous': False,
+                'peaceful': False
+            },
+            'crowd_levels': [],
+            'weather_considerations': [],
+            'recommended_duration': [],
+            'accessibility': {
+                'difficulty_level': 'unknown',
+                'physical_requirements': [],
+                'age_restrictions': []
+            },
+            'memorable_aspects': []
+        }
+        
+        content_lower = content.lower()
+        
+        # Atmosphere detection
+        romantic_indicators = ['romantic', 'intimate', 'cozy', 'beautiful sunset', 'scenic view', 'perfect for couples']
+        date_info['atmosphere']['romantic'] = any(indicator in content_lower for indicator in romantic_indicators)
+        
+        family_indicators = ['family', 'kids', 'children', 'all ages', 'family-friendly']
+        date_info['atmosphere']['family_friendly'] = any(indicator in content_lower for indicator in family_indicators)
+        
+        adventure_indicators = ['adventure', 'thrill', 'exciting', 'adrenaline', 'challenging']
+        date_info['atmosphere']['adventurous'] = any(indicator in content_lower for indicator in adventure_indicators)
+        
+        peaceful_indicators = ['peaceful', 'quiet', 'serene', 'tranquil', 'relaxing']
+        date_info['atmosphere']['peaceful'] = any(indicator in content_lower for indicator in peaceful_indicators)
+        
+        # Extract specific information from sentences
+        sentences = re.split(r'[.!?]+', content)
+        
+        for sentence in sentences:
+            sentence_lower = sentence.lower()
+            
+            # Crowd level information
+            crowd_keywords = ['busy', 'crowded', 'quiet', 'peaceful', 'popular', 'less crowded']
+            if any(keyword in sentence_lower for keyword in crowd_keywords):
+                cleaned = sentence.strip()
+                if 10 < len(cleaned) < 150:
+                    date_info['crowd_levels'].append(cleaned)
+            
+            # Weather considerations
+            weather_keywords = ['weather', 'snow', 'ice', 'cold', 'winter', 'temperature', 'conditions']
+            if any(keyword in sentence_lower for keyword in weather_keywords):
+                cleaned = sentence.strip()
+                if 10 < len(cleaned) < 150:
+                    date_info['weather_considerations'].append(cleaned)
+            
+            # Duration recommendations
+            duration_keywords = ['hours', 'minutes', 'time', 'duration', 'spend', 'visit']
+            if any(keyword in sentence_lower for keyword in duration_keywords):
+                cleaned = sentence.strip()
+                if 10 < len(cleaned) < 150:
+                    date_info['recommended_duration'].append(cleaned)
+            
+            # Memorable aspects (filter out JavaScript)
+            memorable_keywords = ['memorable', 'unforgettable', 'special', 'unique', 'amazing', 'incredible']
+            if any(keyword in sentence_lower for keyword in memorable_keywords):
+                cleaned = sentence.strip()
+                # Filter out JavaScript, HTML, and technical content
+                if (15 < len(cleaned) < 200 and 
+                    not any(js_indicator in cleaned.lower() for js_indicator in 
+                           ['<script', 'javascript', 'function', 'push(', '__tcfapi', '&lt;', '&gt;'])):
+                    date_info['memorable_aspects'].append(cleaned)
+        
+        # Limit results
+        for key in ['crowd_levels', 'weather_considerations', 'recommended_duration', 'memorable_aspects']:
+            date_info[key] = date_info[key][:3]
+        
+        return date_info
 
 
 # Global instance getter
