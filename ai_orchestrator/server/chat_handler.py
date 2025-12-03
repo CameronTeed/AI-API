@@ -53,6 +53,24 @@ class EnhancedChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
         except Exception as e:
             logger.error(f"❌ Failed to setup chat storage: {e}")
 
+    async def _vector_search_wrapper(self, **kwargs):
+        """Wrapper to make vector store search async-compatible"""
+        logger.info(f"🔍 [VECTOR_SEARCH_REQUEST] Args: {kwargs}")
+        results = self.vector_store.search(**kwargs)
+        logger.info(f"📊 [VECTOR_SEARCH_RESPONSE] Returned {len(results)} results")
+        
+        # Log each result summary
+        for i, result in enumerate(results):
+            logger.info(f"  🎯 Result {i+1}: '{result.get('title', 'No title')}' (score: {result.get('similarity_score', 'N/A'):.4f})")
+        
+        return {"items": results, "source": "vector_store"}
+
+    async def _web_search_wrapper(self, **kwargs):
+        logger.info(f"🌐 [WEB_SEARCH_REQUEST] Args: {kwargs}")
+        results = await self.web_client.web_search(**kwargs)
+        logger.info(f"📊 [WEB_SEARCH_RESPONSE] Returned {len(results.get('items', []))} results")
+        return results
+
     async def Chat(
         self, 
         request_iterator: AsyncIterator[chat_service_pb2.ChatRequest],
@@ -140,25 +158,6 @@ class EnhancedChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
             else:
                 logger.info("  📍 User location: None")
 
-            # Prepare tool functions (legacy compatibility)
-            async def vector_search_wrapper(**kwargs):
-                """Wrapper to make vector store search async-compatible"""
-                logger.info(f"🔍 [VECTOR_SEARCH_REQUEST] Args: {kwargs}")
-                results = self.vector_store.search(**kwargs)
-                logger.info(f"📊 [VECTOR_SEARCH_RESPONSE] Returned {len(results)} results")
-                
-                # Log each result summary
-                for i, result in enumerate(results):
-                    logger.info(f"  🎯 Result {i+1}: '{result.get('title', 'No title')}' (score: {result.get('similarity_score', 'N/A'):.4f})")
-                
-                return {"items": results, "source": "vector_store"}
-
-            async def web_search_wrapper(**kwargs):
-                logger.info(f"🌐 [WEB_SEARCH_REQUEST] Args: {kwargs}")
-                results = await self.web_client.web_search(**kwargs)
-                logger.info(f"📊 [WEB_SEARCH_RESPONSE] Returned {len(results.get('items', []))} results")
-                return results
-
             # Stream the LLM response with enhanced agent tools
             logger.info("🤖 [ENHANCED_LLM_STREAM_START] Starting enhanced LLM chat stream with agent tools")
             full_response = ""
@@ -168,14 +167,21 @@ class EnhancedChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
             
             async for text_chunk in self.llm_engine.run_chat(
                 messages=messages,
-                vector_search_func=vector_search_wrapper,
-                web_search_func=web_search_wrapper,
+                vector_search_func=self._vector_search_wrapper,
+                web_search_func=self._web_search_wrapper,
                 agent_tools=self.agent_tools,  # Pass enhanced agent tools
                 chat_storage=self.chat_storage,  # Pass chat context storage
                 session_id=session_id,
                 constraints=constraints,
                 user_location=user_location
             ):
+                # Check for external cancellation every 10 chunks to support stateless scaling
+                if chunk_count % 10 == 0:
+                    if not await self.chat_storage.is_session_active(session_id):
+                        logger.info(f"🛑 [CHAT_ABORT] Session {session_id} was deactivated externally")
+                        await context.abort(grpc.StatusCode.CANCELLED, "Chat terminated externally")
+                        return
+
                 full_response += text_chunk
                 buffer += text_chunk
                 chunk_count += 1
@@ -443,7 +449,11 @@ class EnhancedChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
             session_id = request.session_id if request.session_id else "default"
             reason = request.reason if request.reason else "User requested termination"
             
-            # Check if session exists
+            # Always deactivate in storage first (stateless source of truth)
+            db_success = await self.chat_storage.deactivate_session(session_id)
+            
+            # Check if session exists locally and abort it
+            local_found = False
             if session_id in self.active_sessions:
                 # Cancel the session's tasks
                 session_info = self.active_sessions[session_id]
@@ -455,10 +465,10 @@ class EnhancedChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
                 
                 # Remove from active sessions
                 del self.active_sessions[session_id]
-                
-                # Deactivate in storage
-                await self.chat_storage.deactivate_session(session_id)
-                
+                local_found = True
+                logger.info(f"✅ [KILL_LOCAL] Enhanced session {session_id} terminated locally")
+            
+            if db_success or local_found:
                 logger.info(f"✅ [KILL_SUCCESS] Enhanced session {session_id} terminated successfully")
                 return chat_service_pb2.KillChatResponse(
                     success=True,

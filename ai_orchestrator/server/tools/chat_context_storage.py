@@ -456,6 +456,22 @@ class ChatContextStorage:
             logger.error(f"Error deactivating session {session_id}: {e}")
             return False
 
+    async def is_session_active(self, session_id: str) -> bool:
+        """Check if a session is active"""
+        if not self.pool:
+            return False
+            
+        try:
+            async with self.pool.connection() as conn:
+                result = await conn.execute("""
+                    SELECT is_active FROM chat_sessions WHERE session_id = %s
+                """, (session_id,))
+                row = await result.fetchone()
+                return row[0] if row else False
+        except Exception as e:
+            logger.error(f"Error checking session status {session_id}: {e}")
+            return False
+
     async def close(self):
         """Close the connection pool"""
         if self.pool:

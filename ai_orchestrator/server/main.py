@@ -2,13 +2,11 @@ import asyncio
 import logging
 import os
 import sys
-from concurrent import futures
 
-import grpc
 from grpc import aio
 from dotenv import load_dotenv
 
-from .interceptors import AuthInterceptor, LoggingInterceptor
+from .interceptors import LoggingInterceptor
 from .chat_handler import EnhancedChatHandler
 
 # Import generated protobuf files
