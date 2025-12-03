@@ -1,9 +1,13 @@
 import os
 import json
+import re
 import logging
+import asyncio
+from datetime import datetime
 from typing import List, Dict, Any, Optional, AsyncIterator
 from openai import OpenAI
 from .system_prompt import SYSTEM_PROMPT
+from .tools_config import TOOLS_DEFINITION
 
 logger = logging.getLogger(__name__)
 
@@ -20,206 +24,7 @@ class LLMEngine:
         logger.debug("✅ OpenAI client initialized")
         
         logger.debug("⚙️  Setting up enhanced tool definitions with agent capabilities")
-        self.tools = [
-            # === DATABASE/VECTOR SEARCH TOOLS ===
-            {
-                "type": "function",
-                "function": {
-                    "name": "search_date_ideas",
-                    "description": "Search the vector knowledge base for date ideas using semantic similarity and filters.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {"type": "string", "description": "Natural language query describing the desired date idea"},
-                            "city": {"type": "string", "description": "City to filter by"},
-                            "max_price_tier": {"type": "integer", "enum": [1, 2, 3], "description": "Maximum price tier (1=budget, 2=moderate, 3=expensive)"},
-                            "indoor": {"type": "boolean", "description": "Whether the activity should be indoors"},
-                            "categories": {"type": "array", "items": {"type": "string"}, "description": "Categories to filter by (e.g., romantic, outdoor, food)"},
-                            "min_duration": {"type": "integer", "description": "Minimum duration in minutes"},
-                            "max_duration": {"type": "integer", "description": "Maximum duration in minutes"},
-                            "top_k": {"type": "integer", "default": 10, "description": "Number of results to return"}
-                        },
-                        "required": ["query"],
-                        "additionalProperties": False
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "search_featured_dates",
-                    "description": "Search for featured, unique, or special date ideas in the database with high quality filters.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "city": {"type": "string", "description": "City to search in"},
-                            "category": {"type": "string", "description": "Specific category of featured dates (romantic, adventure, cultural, etc.)"}
-                        },
-                        "additionalProperties": False
-                    }
-                }
-            },
-            
-            # === GOOGLE SERVICES TOOLS ===
-            {
-                "type": "function",
-                "function": {
-                    "name": "google_places_search",
-                    "description": "Search for places, restaurants, venues using Google Places API with detailed information.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {"type": "string", "description": "Search query for places (e.g., 'romantic restaurants', 'art galleries', 'date night activities')"},
-                            "location": {"type": "string", "description": "Location to search around (city name or address)"},
-                            "radius": {"type": "integer", "default": 25000, "description": "Search radius in meters (default 25km)"}
-                        },
-                        "required": ["query"],
-                        "additionalProperties": False
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "find_nearby_venues",
-                    "description": "Find venues near a specific lat/lng coordinate using Google Places.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "lat": {"type": "number", "description": "Latitude coordinate"},
-                            "lon": {"type": "number", "description": "Longitude coordinate"},
-                            "venue_type": {"type": "string", "description": "Type of venue (restaurant, entertainment, museum, etc.)", "default": "restaurant"},
-                            "radius_km": {"type": "number", "description": "Search radius in kilometers", "default": 5.0}
-                        },
-                        "required": ["lat", "lon"],
-                        "additionalProperties": False
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "get_directions",
-                    "description": "Get directions and travel information between two locations using Google Maps.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "origin": {"type": "string", "description": "Starting location (address or place name)"},
-                            "destination": {"type": "string", "description": "Destination location (address or place name)"},
-                            "mode": {"type": "string", "enum": ["driving", "walking", "transit", "bicycling"], "default": "driving", "description": "Transportation mode"}
-                        },
-                        "required": ["origin", "destination"],
-                        "additionalProperties": False
-                    }
-                }
-            },
-            
-            # === WEB SCRAPING TOOLS ===
-            {
-                "type": "function",
-                "function": {
-                    "name": "web_scrape_venue_info",
-                    "description": "Scrape detailed information from a venue's website including hours, menu, events, contact info.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "url": {"type": "string", "description": "Website URL to scrape"},
-                            "venue_name": {"type": "string", "description": "Name of the venue (optional, helps with extraction)"}
-                        },
-                        "required": ["url"],
-                        "additionalProperties": False
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "enhanced_web_search",
-                    "description": "Enhanced web search with specialized result types for venues and events.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {"type": "string", "description": "Search query"},
-                            "city": {"type": "string", "description": "City to focus search on"},
-                            "result_type": {"type": "string", "enum": ["general", "events", "reviews", "deals", "hours"], "default": "general", "description": "Type of information to focus on"}
-                        },
-                        "required": ["query"],
-                        "additionalProperties": False
-                    }
-                }
-            },
-            
-            # === GEOLOCATION TOOLS ===
-            {
-                "type": "function",
-                "function": {
-                    "name": "geocode_location",
-                    "description": "Convert an address or place name to latitude/longitude coordinates.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "address": {"type": "string", "description": "Address or place name to geocode"}
-                        },
-                        "required": ["address"],
-                        "additionalProperties": False
-                    }
-                }
-            },
-            
-            # === LEGACY TOOLS (for backwards compatibility) ===
-            {
-                "type": "function",
-                "function": {
-                    "name": "web_search",
-                    "description": "Basic web search for venue hours, tickets, or new events. Use enhanced_web_search for better results.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {"type": "string"},
-                            "city": {"type": "string"}
-                        },
-                        "required": ["query"],
-                        "additionalProperties": False
-                    }
-                }
-            },
-            
-            # === ENHANCED SCRAPING TOOLS ===
-            {
-                "type": "function",
-                "function": {
-                    "name": "scrapingbee_scrape",
-                    "description": "Advanced web scraping using ScrapingBee API for JavaScript-heavy sites and better reliability.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "url": {"type": "string", "description": "Website URL to scrape"},
-                            "premium_proxy": {"type": "boolean", "default": False, "description": "Use premium proxy for better success rate"},
-                            "country_code": {"type": "string", "default": "CA", "description": "Country code for proxy location"}
-                        },
-                        "required": ["url"],
-                        "additionalProperties": False
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "eventbrite_search",
-                    "description": "Search for events on Eventbrite platform.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {"type": "string", "description": "Event search query"},
-                            "city": {"type": "string", "description": "City to search in"},
-                            "date_range": {"type": "string", "description": "Date range for events (optional)"}
-                        },
-                        "required": ["query"],
-                        "additionalProperties": False
-                    }
-                }
-            }
-        ]
+        self.tools = TOOLS_DEFINITION
 
     def _trim_chat_messages(self, messages, max_chars=50000):
         """Trim chat messages to prevent token limit issues"""
@@ -289,6 +94,12 @@ class LLMEngine:
         
         logger.debug(f"💭 System prompt length: {len(SYSTEM_PROMPT)}")
 
+        # Add current date and time context
+        current_time = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
+        date_context = f"Current Date and Time: {current_time}. Use this for finding events, checking opening hours, and understanding 'today', 'tonight', or 'this weekend'."
+        chat_messages.append({"role": "system", "content": date_context})
+        logger.debug(f"📅 Added date context: {current_time}")
+
         # Add context about constraints and location if available
         if constraints or user_location:
             context = "User context: "
@@ -349,27 +160,46 @@ Use AT LEAST 3-4 tools before responding. NEVER stop after just one tool call.
                 logger.debug(f"🔧 Tool calls detected: {len(response.choices[0].message.tool_calls)}")
                 # Process tool calls
                 chat_messages.append(response.choices[0].message)
-                
+
                 # Store all tool results
                 tool_results = {}
-                
-                for i, tool_call in enumerate(response.choices[0].message.tool_calls):
+
+                # Execute tools in parallel for better performance
+                logger.info(f"⚡ Executing {len(response.choices[0].message.tool_calls)} tools in parallel")
+                tasks = []
+                tool_calls_list = list(response.choices[0].message.tool_calls)
+
+                for i, tool_call in enumerate(tool_calls_list):
                     function_name = tool_call.function.name
                     function_args = json.loads(tool_call.function.arguments)
-                    
-                    logger.info(f"🔧 Calling tool {i+1}/{len(response.choices[0].message.tool_calls)}: {function_name} with args: {function_args}")
-                    
-                    # Execute the appropriate function with enhanced agent tools
-                    tool_result = await self._execute_tool_call(
-                        function_name, 
-                        function_args, 
-                        agent_tools,
-                        vector_search_func,
-                        web_search_func
+
+                    logger.info(f"🔧 Queuing tool {i+1}/{len(tool_calls_list)}: {function_name}")
+
+                    # Create task for parallel execution
+                    task = asyncio.create_task(
+                        self._execute_tool_call(
+                            function_name,
+                            function_args,
+                            agent_tools,
+                            vector_search_func,
+                            web_search_func
+                        )
                     )
-                    
-                    tool_results[function_name] = tool_result
-                    
+                    # Store tool_call info with task for later reference
+                    tasks.append((tool_call.id, function_name, function_args, task))
+
+                # Wait for all tools to complete
+                logger.info(f"⏳ Waiting for {len(tasks)} tools to complete...")
+                for tool_call_id, function_name, function_args, task in tasks:
+                    try:
+                        tool_result = await task
+                        tool_results[function_name] = tool_result
+                        logger.debug(f"✅ Tool {function_name} completed")
+                    except Exception as e:
+                        logger.error(f"❌ Tool {function_name} failed: {e}")
+                        tool_results[function_name] = {"error": str(e)}
+                        tool_result = {"error": str(e)}
+
                     # Store tool call if storage is available
                     if chat_storage and session_id:
                         await chat_storage.store_tool_call(
@@ -379,10 +209,10 @@ Use AT LEAST 3-4 tools before responding. NEVER stop after just one tool call.
                             tool_arguments=function_args,
                             tool_result=tool_result
                         )
-                    
+
                     # Add tool result to messages
                     tool_message = {
-                        "tool_call_id": tool_call.id,
+                        "tool_call_id": tool_call_id,
                         "role": "tool",
                         "name": function_name,
                         "content": json.dumps(tool_result)
@@ -606,11 +436,16 @@ Use AT LEAST 3-4 tools before responding. NEVER stop after just one tool call.
     def parse_structured_answer(self, content: str) -> Optional[Dict]:
         """Extract structured answer from the LLM response"""
         try:
-            # First try to find explicit JSON in the response
-            import re
+            # 1. Try to find JSON within markdown code blocks (most reliable)
+            code_block_match = re.search(r'```json\s*(\{.*?\})\s*```', content, re.DOTALL)
+            if code_block_match:
+                logger.debug("🔍 Found JSON in markdown code block")
+                return json.loads(code_block_match.group(1))
+
+            # 2. Fallback: Try to find any JSON-like structure
             json_match = re.search(r'\{.*\}', content, re.DOTALL)
             if json_match:
-                logger.debug(f"🔍 Found JSON in response: {json_match.group()[:100]}...")
+                logger.debug(f"🔍 Found raw JSON in response: {json_match.group()[:100]}...")
                 return json.loads(json_match.group())
             
             # If no JSON found, try to extract structure from the natural language response
