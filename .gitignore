@@ -1,2 +1,6 @@
 .env
 ai_orchestrator/.env
+.env.enhanced
+.env.example
+ai_orchestrator/.env.enhanced
+ai_orchestrator/.env.example
