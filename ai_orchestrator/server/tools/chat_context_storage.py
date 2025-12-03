@@ -157,17 +157,17 @@ class ChatContextStorage:
             return False
 
     async def store_message(
-        self, 
-        session_id: str, 
-        role: str, 
-        content: str, 
+        self,
+        session_id: str,
+        role: str,
+        content: str,
         metadata: Optional[Dict] = None,
         embedding: Optional[List[float]] = None
     ) -> Optional[int]:
         """Store a chat message"""
         if not self.pool:
             return None
-        
+
         try:
             async with self.pool.connection() as conn:
                 result = await conn.execute("""
@@ -175,22 +175,32 @@ class ChatContextStorage:
                     VALUES (%s, %s, %s, %s, %s)
                     RETURNING message_id
                 """, (
-                    session_id, 
-                    role, 
-                    content, 
+                    session_id,
+                    role,
+                    content,
                     json.dumps(metadata or {}),
                     embedding
                 ))
-                
+
                 message_id = (await result.fetchone())[0]
                 await conn.commit()
-                
+
                 logger.debug(f"📝 Message stored: {message_id} in session {session_id}")
                 return message_id
-                
+
         except Exception as e:
             logger.error(f"Error storing message in session {session_id}: {e}")
             return None
+
+    async def add_message(
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        metadata: Optional[Dict] = None
+    ) -> Optional[int]:
+        """Convenience method to add a message to a session"""
+        return await self.store_message(session_id, role, content, metadata)
 
     async def store_tool_call(
         self, 
@@ -444,6 +454,22 @@ class ChatContextStorage:
                 
         except Exception as e:
             logger.error(f"Error deactivating session {session_id}: {e}")
+            return False
+
+    async def is_session_active(self, session_id: str) -> bool:
+        """Check if a session is active"""
+        if not self.pool:
+            return False
+            
+        try:
+            async with self.pool.connection() as conn:
+                result = await conn.execute("""
+                    SELECT is_active FROM chat_sessions WHERE session_id = %s
+                """, (session_id,))
+                row = await result.fetchone()
+                return row[0] if row else False
+        except Exception as e:
+            logger.error(f"Error checking session status {session_id}: {e}")
             return False
 
     async def close(self):

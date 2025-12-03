@@ -1,6 +1,5 @@
 import grpc
 import logging
-from typing import Iterator, AsyncIterator
 from grpc import aio
 
 logger = logging.getLogger(__name__)
