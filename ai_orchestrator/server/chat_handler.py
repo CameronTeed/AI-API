@@ -282,8 +282,14 @@ class EnhancedChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
             # Convert to protobuf format
             options = []
             for i, opt_data in enumerate(structured_data.get("options", [])):
-                logger.info(f"  🎯 [OPTION_{i+1}_CONVERT] Converting: '{opt_data.get('title', 'No title')}'")
-                
+                # Validate required fields
+                title = opt_data.get("title", "").strip()
+                if not title:
+                    logger.warning(f"  ⚠️  [OPTION_{i+1}_SKIP] Skipping option with empty title")
+                    continue
+
+                logger.info(f"  🎯 [OPTION_{i+1}_CONVERT] Converting: '{title}'")
+
                 citations = []
                 for cite_data in opt_data.get("citations", []):
                     citation = chat_service_pb2.Citation(
@@ -295,12 +301,12 @@ class EnhancedChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
                 # Handle logistics field - convert to string if it's an object
                 logistics_data = opt_data.get("logistics", "")
                 website_url = opt_data.get("website", "")  # Default from top level
-                
+
                 if isinstance(logistics_data, dict):
                     # Extract website from logistics if present
                     if "website" in logistics_data and not website_url:
                         website_url = logistics_data["website"]
-                    
+
                     # Convert dict to a readable string format
                     logistics_parts = []
                     if "website" in logistics_data:
@@ -313,8 +319,13 @@ class EnhancedChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
                 else:
                     logistics_str = str(logistics_data) if logistics_data else ""
 
+                # Ensure logistics is not empty
+                if not logistics_str.strip():
+                    logistics_str = "Contact for details"
+                    logger.debug(f"  ℹ️  [OPTION_{i+1}] Using default logistics")
+
                 option = chat_service_pb2.Option(
-                    title=opt_data.get("title", ""),
+                    title=title,
                     categories=opt_data.get("categories", []),
                     price=opt_data.get("price", ""),
                     duration_min=opt_data.get("duration_min", 0),

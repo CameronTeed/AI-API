@@ -1317,6 +1317,10 @@ class AgentToolsManager:
         """Alias for search_stored_dates for compatibility"""
         return self.search_stored_dates(**kwargs)
 
+    async def web_search(self, query: str, city: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+        """Legacy web search - alias for enhanced_web_search"""
+        return await self.enhanced_web_search(query=query, city=city, **kwargs)
+
 # Global instance
 _agent_tools = None
 
