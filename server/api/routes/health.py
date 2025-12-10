@@ -1,5 +1,6 @@
 """
 Health check endpoints
+Enhanced with ML service status
 """
 
 import logging
@@ -13,28 +14,34 @@ router = APIRouter()
 
 @router.get("/status")
 async def health_status():
-    """Get overall health status of the service"""
+    """Get overall health status of the service including ML integration"""
     try:
         from ...chat_handler import EnhancedChatHandler
-        
+        from ...core.ml_integration import get_ml_wrapper
+        from ...core.search_engine import get_search_engine
+
         handler = EnhancedChatHandler()
-        
+        ml_wrapper = get_ml_wrapper()
+        search_engine = get_search_engine()
+
         health_details = {
             "llm_engine": "healthy" if handler.llm_engine else "unhealthy",
             "vector_store": "healthy" if handler.vector_store else "unhealthy",
             "web_client": "healthy" if handler.web_client else "unhealthy",
             "agent_tools": "healthy" if handler.agent_tools else "unhealthy",
             "chat_storage": "healthy" if handler.chat_storage else "unhealthy",
+            "ml_service": "healthy" if ml_wrapper else "unhealthy",
+            "search_engine": "healthy" if search_engine else "unhealthy",
         }
-        
+
         overall_status = "healthy" if all(v == "healthy" for v in health_details.values()) else "degraded"
-        
+
         return {
             "status": overall_status,
             "timestamp": datetime.utcnow().isoformat(),
             "components": health_details
         }
-    
+
     except Exception as e:
         logger.error(f"Health check error: {e}", exc_info=True)
         return {

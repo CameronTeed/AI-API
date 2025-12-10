@@ -9,8 +9,12 @@ from grpc import aio
 from .tools.vector_store import get_vector_store
 from .tools.web_search import get_web_client
 from .tools.agent_tools import get_agent_tools
+from .tools.agent_tools_enhanced import get_enhanced_agent_tools
 from .tools.chat_context_storage import get_chat_storage
 from .llm.engine import LLMEngine
+from .llm.engine_enhanced import get_enhanced_llm_engine
+from .core.ml_integration import get_ml_wrapper
+from .core.search_engine import get_search_engine
 from .schemas import StructuredAnswer, Option, Citation
 from .utils import price_tier_to_symbol, build_logistics, detect_source, safe_url
 
@@ -22,28 +26,37 @@ logger = logging.getLogger(__name__)
 
 class EnhancedChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
     """Enhanced AI orchestrator chat handler with agent tools and context storage"""
-    
+
     def __init__(self):
         logger.debug("🔧 Initializing Enhanced ChatHandler")
         self.llm_engine = LLMEngine()
         logger.debug("✅ Enhanced LLMEngine initialized")
-        
+
+        # Initialize enhanced components with ML integration
+        self.enhanced_llm_engine = get_enhanced_llm_engine()
+        logger.debug("✅ Enhanced LLMEngine with ML integration initialized")
+
         self.vector_store = get_vector_store()
         logger.debug("✅ Vector store initialized")
-        
+
         self.web_client = get_web_client()
         logger.debug("✅ Web client initialized")
-        
-        # Initialize enhanced components
-        self.agent_tools = get_agent_tools()
-        logger.debug("✅ Agent tools initialized")
-        
+
+        # Initialize enhanced agent tools
+        self.agent_tools = get_enhanced_agent_tools()
+        logger.debug("✅ Enhanced agent tools initialized")
+
+        # Initialize ML and search services
+        self.ml_wrapper = get_ml_wrapper()
+        self.search_engine = get_search_engine()
+        logger.debug("✅ ML and search services initialized")
+
         self.chat_storage = get_chat_storage()
         logger.debug("✅ Chat context storage initialized")
-        
+
         # Track active chat sessions for kill functionality
         self.active_sessions = {}
-        logger.info("🎯 Enhanced ChatHandler fully initialized")
+        logger.info("🎯 Enhanced ChatHandler fully initialized with ML integration")
 
     async def setup_storage(self):
         """Setup chat storage tables"""
@@ -158,19 +171,17 @@ class EnhancedChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
             else:
                 logger.info("  📍 User location: None")
 
-            # Stream the LLM response with enhanced agent tools
-            logger.info("🤖 [ENHANCED_LLM_STREAM_START] Starting enhanced LLM chat stream with agent tools")
+            # Stream the LLM response with enhanced agent tools and ML integration
+            logger.info("🤖 [ENHANCED_LLM_STREAM_START] Starting enhanced LLM chat stream with ML integration")
             full_response = ""
             chunk_count = 0
             buffer = ""
             buffer_size = 50  # Send chunks when buffer reaches this size
-            
-            async for text_chunk in self.llm_engine.run_chat(
+
+            # Use enhanced LLM engine with ML integration
+            async for text_chunk in self.enhanced_llm_engine.run_chat(
                 messages=messages,
-                vector_search_func=self._vector_search_wrapper,
-                web_search_func=self._web_search_wrapper,
                 agent_tools=self.agent_tools,  # Pass enhanced agent tools
-                chat_storage=self.chat_storage,  # Pass chat context storage
                 session_id=session_id,
                 constraints=constraints,
                 user_location=user_location

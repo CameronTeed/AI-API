@@ -1,6 +1,7 @@
 """
 Chat endpoints for AI Orchestrator
 Handles conversation with the agent for date ideas
+Enhanced with ML service integration
 """
 
 import logging
@@ -9,6 +10,8 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from ..models import ChatMessage, ChatRequest, ChatResponse, Constraints, Location
+from ...core.ml_integration import get_ml_wrapper
+from ...core.search_engine import get_search_engine
 
 logger = logging.getLogger(__name__)
 
@@ -35,24 +38,29 @@ class ConversationResponse(BaseModel):
 async def chat_conversation(request: ConversationRequest):
     """
     Start or continue a conversation with the AI agent
-    
+
     The agent will:
     - Remember previous messages in the conversation
     - Use available tools (Google Places, SerpAPI, ScrapingBee, Vector DB)
     - Provide date ideas based on constraints
     - Maintain conversation context
+    - Predict vibes and filter results accordingly
+    - Integrate ML-based date planning
     """
     try:
-        from ...chat_handler import EnhancedChatHandler
-        
-        handler = EnhancedChatHandler()
-        
+        from ...chat_handler_ml_enhanced import MLEnhancedChatHandler
+        from ...llm.engine_enhanced import get_enhanced_llm_engine
+
+        # Use ML-enhanced handler
+        handler = MLEnhancedChatHandler()
+        enhanced_engine = get_enhanced_llm_engine()
+
         # Convert messages to the format expected by the handler
         messages_data = [
             {"role": msg.role, "content": msg.content}
             for msg in request.messages
         ]
-        
+
         # Prepare constraints
         constraints = None
         if request.constraints:
@@ -63,7 +71,7 @@ async def chat_conversation(request: ConversationRequest):
                 "indoor": request.constraints.indoor,
                 "categories": request.constraints.categories
             }
-        
+
         # Prepare location
         user_location = None
         if request.user_location:
@@ -71,15 +79,12 @@ async def chat_conversation(request: ConversationRequest):
                 "lat": request.user_location.lat,
                 "lon": request.user_location.lon
             }
-        
-        # Get response from LLM engine
+
+        # Get response from enhanced LLM engine with ML integration
         full_response = ""
-        async for chunk in handler.llm_engine.run_chat(
+        async for chunk in enhanced_engine.run_chat(
             messages=messages_data,
-            vector_search_func=handler.vector_store.search,
-            web_search_func=handler.web_client.web_search,
             agent_tools=handler.agent_tools,
-            chat_storage=handler.chat_storage,
             session_id=request.session_id,
             constraints=constraints,
             user_location=user_location
