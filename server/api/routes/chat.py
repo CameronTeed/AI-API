@@ -48,12 +48,10 @@ async def chat_conversation(request: ConversationRequest):
     - Integrate ML-based date planning
     """
     try:
-        from ...chat_handler_ml_enhanced import MLEnhancedChatHandler
-        from ...llm.engine_enhanced import get_enhanced_llm_engine
+        from ...chat_handler import EnhancedChatHandler
 
-        # Use ML-enhanced handler
-        handler = MLEnhancedChatHandler()
-        enhanced_engine = get_enhanced_llm_engine()
+        # Use chat handler with optimized LLM engine
+        handler = EnhancedChatHandler()
 
         # Convert messages to the format expected by the handler
         messages_data = [
@@ -80,9 +78,9 @@ async def chat_conversation(request: ConversationRequest):
                 "lon": request.user_location.lon
             }
 
-        # Get response from enhanced LLM engine with ML integration
+        # Get response from LLM engine (optimized for cost-efficiency)
         full_response = ""
-        async for chunk in enhanced_engine.run_chat(
+        async for chunk in handler.llm_engine.run_chat(
             messages=messages_data,
             agent_tools=handler.agent_tools,
             session_id=request.session_id,

@@ -63,11 +63,11 @@ class TestEnhancedLLMEngine:
     """Test enhanced LLM engine"""
     
     @pytest.mark.asyncio
-    async def test_enhanced_engine_initialization(self):
-        """Test enhanced LLM engine initializes"""
-        from server.llm.engine_enhanced import get_enhanced_llm_engine
-        
-        engine = get_enhanced_llm_engine()
+    async def test_llm_engine_initialization(self):
+        """Test LLM engine initializes"""
+        from server.llm.engine import get_llm_engine
+
+        engine = get_llm_engine()
         assert engine is not None
         assert hasattr(engine, 'run_chat')
         assert hasattr(engine, 'ml_wrapper')
@@ -78,24 +78,24 @@ class TestEnhancedAgentTools:
     """Test enhanced agent tools"""
     
     @pytest.mark.asyncio
-    async def test_enhanced_tools_initialization(self):
-        """Test enhanced agent tools initialize"""
-        from server.tools.agent_tools_enhanced import get_enhanced_agent_tools
-        
-        tools = get_enhanced_agent_tools()
+    async def test_agent_tools_initialization(self):
+        """Test agent tools initialize"""
+        from server.tools.agent_tools import get_agent_tools
+
+        tools = get_agent_tools()
         assert tools is not None
-        assert hasattr(tools, 'search_venues')
-        assert hasattr(tools, 'search_web')
-        assert hasattr(tools, 'search_events')
-        assert hasattr(tools, 'search_restaurants')
+        assert hasattr(tools, 'vector_search')
+        assert hasattr(tools, 'web_search')
+        assert hasattr(tools, 'get_tool_list')
+        assert hasattr(tools, 'execute_tool')
     
     @pytest.mark.asyncio
-    async def test_venue_search_with_vibe(self):
-        """Test venue search with vibe prediction"""
-        from server.tools.agent_tools_enhanced import get_enhanced_agent_tools
-        
-        tools = get_enhanced_agent_tools()
-        results = await tools.search_venues("romantic dinner", limit=5)
+    async def test_vector_search(self):
+        """Test vector search"""
+        from server.tools.agent_tools import get_agent_tools
+
+        tools = get_agent_tools()
+        results = await tools.vector_search("romantic dinner", limit=5)
         
         assert isinstance(results, dict)
 

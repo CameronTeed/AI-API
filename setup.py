@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from dotenv import load_dotenv
 from server.db_config import get_db_config, test_connection
-from server.tools.postgresql_vector_store import PostgreSQLVectorStore
+from server.tools.vector_search import PostgreSQLVectorStore
 
 # Configure logging
 logging.basicConfig(

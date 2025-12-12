@@ -63,160 +63,240 @@ def verify_admin_token(authorization: Optional[str] = Header(None)) -> bool:
     return True
 
 
-@router.post("/date-ideas", response_model=DateIdeaResponse, dependencies=[Depends(verify_admin_token)])
+@router.post("/date-ideas", response_model=dict, dependencies=[Depends(verify_admin_token)])
 async def create_date_idea(idea: DateIdea):
     """
     Create a new date idea in the database
-    
+
     Requires admin authentication via Bearer token in Authorization header
+
+    Example:
+    ```
+    curl -X POST http://localhost:8000/api/admin/date-ideas \
+      -H "Authorization: Bearer your_admin_token" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "title": "Sunset Picnic at Parliament Hill",
+        "description": "Romantic picnic with a view of Parliament Hill at sunset",
+        "category": "romantic",
+        "price_tier": 1,
+        "duration_min": 120,
+        "indoor": false,
+        "city": "Ottawa",
+        "website": "https://www.parliament.ca",
+        "phone": "+1-613-555-1234",
+        "latitude": 45.4215,
+        "longitude": -75.6972,
+        "tags": ["romantic", "outdoor", "picnic", "sunset"]
+      }'
+    ```
     """
     try:
-        from ...tools.db_client import get_db_client
-        
-        db_client = get_db_client()
-        
-        # Insert into database
-        result = await db_client.execute(
-            """
-            INSERT INTO date_ideas 
-            (title, description, category, price_tier, duration_min, indoor, city, website, phone, latitude, longitude, tags)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id, title, description, category, price_tier, duration_min, indoor, city, website, phone, latitude, longitude, tags
-            """,
-            (
-                idea.title, idea.description, idea.category, idea.price_tier,
-                idea.duration_min, idea.indoor, idea.city, idea.website, idea.phone,
-                idea.latitude, idea.longitude, idea.tags
-            )
+        from ...tools.vector_search import get_vector_store
+        from ...tools.chat_context_storage import get_chat_storage
+        import json
+        from datetime import datetime
+
+        vector_store = get_vector_store()
+        storage = get_chat_storage()
+
+        # Add to vector store
+        await vector_store.add_date_idea(
+            name=idea.title,
+            description=idea.description,
+            city=idea.city,
+            price_tier=idea.price_tier,
+            duration_minutes=idea.duration_min,
+            indoor=idea.indoor,
+            categories=[idea.category],
+            unique_features=idea.tags or []
         )
-        
-        if result:
-            row = result[0]
-            return DateIdeaResponse(
-                id=row[0],
-                title=row[1],
-                description=row[2],
-                category=row[3],
-                price_tier=row[4],
-                duration_min=row[5],
-                indoor=row[6],
-                city=row[7],
-                website=row[8],
-                phone=row[9],
-                latitude=row[10],
-                longitude=row[11],
-                tags=row[12]
-            )
-        
-        raise HTTPException(status_code=500, detail="Failed to create date idea")
-    
+
+        # Also store in database if storage is available
+        if storage and storage.pool:
+            try:
+                async with storage.pool.connection() as conn:
+                    # Generate embedding for the idea
+                    from ...core.ml_integration import get_ml_wrapper
+                    ml_wrapper = get_ml_wrapper()
+                    embedding_text = f"{idea.title} {idea.description} {idea.category}"
+                    embedding = ml_wrapper.generate_embedding(embedding_text)
+
+                    # Get or create location
+                    location_result = await conn.execute(
+                        """
+                        SELECT location_id FROM location
+                        WHERE city = %s LIMIT 1
+                        """,
+                        (idea.city,)
+                    )
+                    location_row = await location_result.fetchone()
+
+                    if not location_row:
+                        # Create new location
+                        location_result = await conn.execute(
+                            """
+                            INSERT INTO location (name, city, lat, lon)
+                            VALUES (%s, %s, %s, %s)
+                            RETURNING location_id
+                            """,
+                            (idea.city, idea.city, idea.latitude or 0, idea.longitude or 0)
+                        )
+                        location_id = (await location_result.fetchone())[0]
+                    else:
+                        location_id = location_row[0]
+
+                    # Insert event
+                    await conn.execute(
+                        """
+                        INSERT INTO event
+                        (title, description, price, location_id, created_time, modified_time,
+                         is_ai_recommended, ai_score, popularity, duration_min, indoor,
+                         website, phone, rating, review_count, embedding, metadata)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            idea.title,
+                            idea.description,
+                            idea.price_tier * 25,
+                            location_id,
+                            datetime.now(),
+                            datetime.now(),
+                            True,  # Mark as AI-recommended (admin-added)
+                            100,   # High score for admin-added ideas
+                            0,     # No reviews yet
+                            idea.duration_min,
+                            idea.indoor,
+                            idea.website or '',
+                            idea.phone or '',
+                            4.5,   # Default rating
+                            0,     # No reviews yet
+                            embedding,
+                            json.dumps({'source': 'admin', 'category': idea.category, 'tags': idea.tags or []})
+                        )
+                    )
+                    logger.info(f"✅ Stored custom idea in database: {idea.title}")
+            except Exception as db_error:
+                logger.warning(f"Could not store in database: {db_error}, but added to vector store")
+
+        return {
+            "success": True,
+            "message": f"Date idea '{idea.title}' created successfully",
+            "idea": {
+                "title": idea.title,
+                "category": idea.category,
+                "city": idea.city,
+                "price_tier": idea.price_tier
+            }
+        }
+
     except Exception as e:
         logger.error(f"Error creating date idea: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/date-ideas/{idea_id}", response_model=DateIdeaResponse, dependencies=[Depends(verify_admin_token)])
-async def get_date_idea(idea_id: int):
-    """Get a specific date idea by ID"""
-    try:
-        from ...tools.db_client import get_db_client
-        
-        db_client = get_db_client()
-        
-        result = await db_client.execute(
-            "SELECT id, title, description, category, price_tier, duration_min, indoor, city, website, phone, latitude, longitude, tags FROM date_ideas WHERE id = %s",
-            (idea_id,)
-        )
-        
-        if not result:
-            raise HTTPException(status_code=404, detail="Date idea not found")
-        
-        row = result[0]
-        return DateIdeaResponse(
-            id=row[0],
-            title=row[1],
-            description=row[2],
-            category=row[3],
-            price_tier=row[4],
-            duration_min=row[5],
-            indoor=row[6],
-            city=row[7],
-            website=row[8],
-            phone=row[9],
-            latitude=row[10],
-            longitude=row[11],
-            tags=row[12]
-        )
-    
-    except Exception as e:
-        logger.error(f"Error retrieving date idea: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+@router.put("/date-ideas/{idea_id}", response_model=dict, dependencies=[Depends(verify_admin_token)])
+async def update_date_idea(idea_id: str, idea: DateIdea):
+    """
+    Update an existing date idea in the database
 
-
-@router.put("/date-ideas/{idea_id}", response_model=DateIdeaResponse, dependencies=[Depends(verify_admin_token)])
-async def update_date_idea(idea_id: int, idea: DateIdea):
-    """Update an existing date idea"""
+    Requires admin authentication via Bearer token in Authorization header
+    """
     try:
-        from ...tools.db_client import get_db_client
-        
-        db_client = get_db_client()
-        
-        result = await db_client.execute(
-            """
-            UPDATE date_ideas 
-            SET title=%s, description=%s, category=%s, price_tier=%s, duration_min=%s, 
-                indoor=%s, city=%s, website=%s, phone=%s, latitude=%s, longitude=%s, tags=%s
-            WHERE id=%s
-            RETURNING id, title, description, category, price_tier, duration_min, indoor, city, website, phone, latitude, longitude, tags
-            """,
-            (
-                idea.title, idea.description, idea.category, idea.price_tier,
-                idea.duration_min, idea.indoor, idea.city, idea.website, idea.phone,
-                idea.latitude, idea.longitude, idea.tags, idea_id
-            )
-        )
-        
-        if not result:
-            raise HTTPException(status_code=404, detail="Date idea not found")
-        
-        row = result[0]
-        return DateIdeaResponse(
-            id=row[0],
-            title=row[1],
-            description=row[2],
-            category=row[3],
-            price_tier=row[4],
-            duration_min=row[5],
-            indoor=row[6],
-            city=row[7],
-            website=row[8],
-            phone=row[9],
-            latitude=row[10],
-            longitude=row[11],
-            tags=row[12]
-        )
-    
+        from ...tools.chat_context_storage import get_chat_storage
+        from datetime import datetime
+        import json
+
+        storage = get_chat_storage()
+
+        if storage and storage.pool:
+            async with storage.pool.connection() as conn:
+                # Update event
+                await conn.execute(
+                    """
+                    UPDATE event
+                    SET title = %s, description = %s, price = %s,
+                        duration_min = %s, indoor = %s, website = %s, phone = %s,
+                        modified_time = %s, metadata = %s
+                    WHERE id = %s
+                    """,
+                    (
+                        idea.title,
+                        idea.description,
+                        idea.price_tier * 25,
+                        idea.duration_min,
+                        idea.indoor,
+                        idea.website or '',
+                        idea.phone or '',
+                        datetime.now(),
+                        json.dumps({'source': 'admin', 'category': idea.category, 'tags': idea.tags or []}),
+                        idea_id
+                    )
+                )
+                logger.info(f"✅ Updated date idea: {idea.title}")
+
+        return {
+            "success": True,
+            "message": f"Date idea '{idea.title}' updated successfully",
+            "idea_id": idea_id
+        }
+
     except Exception as e:
         logger.error(f"Error updating date idea: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/date-ideas/{idea_id}", dependencies=[Depends(verify_admin_token)])
-async def delete_date_idea(idea_id: int):
-    """Delete a date idea"""
+@router.delete("/date-ideas/{idea_id}", response_model=dict, dependencies=[Depends(verify_admin_token)])
+async def delete_date_idea(idea_id: str):
+    """
+    Delete a date idea from the database
+
+    Requires admin authentication via Bearer token in Authorization header
+    """
     try:
-        from ...tools.db_client import get_db_client
-        
-        db_client = get_db_client()
-        
-        await db_client.execute(
-            "DELETE FROM date_ideas WHERE id = %s",
-            (idea_id,)
-        )
-        
-        return {"success": True, "message": f"Date idea {idea_id} deleted successfully"}
-    
+        from ...tools.chat_context_storage import get_chat_storage
+
+        storage = get_chat_storage()
+
+        if storage and storage.pool:
+            async with storage.pool.connection() as conn:
+                # Delete event
+                await conn.execute(
+                    "DELETE FROM event WHERE id = %s",
+                    (idea_id,)
+                )
+                logger.info(f"✅ Deleted date idea: {idea_id}")
+
+        return {
+            "success": True,
+            "message": f"Date idea deleted successfully",
+            "idea_id": idea_id
+        }
+
     except Exception as e:
         logger.error(f"Error deleting date idea: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/date-ideas", response_model=dict, dependencies=[Depends(verify_admin_token)])
+async def list_date_ideas():
+    """List all date ideas"""
+    try:
+        from ...tools.vector_search import get_vector_store
+
+        vector_store = get_vector_store()
+
+        # Get all venues from vector store
+        results = await vector_store.search("", limit=1000)
+
+        return {
+            "success": True,
+            "count": len(results),
+            "ideas": results
+        }
+
+    except Exception as e:
+        logger.error(f"Error listing date ideas: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 

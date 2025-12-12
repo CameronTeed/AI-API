@@ -99,12 +99,11 @@ class JSONDatabaseSeeder:
                 if city not in location_map:
                     cursor.execute(
                         """
-                        INSERT INTO location (name, address, city, state, country)
-                        VALUES (%s, %s, %s, %s, %s)
-                        ON CONFLICT (address) DO UPDATE SET name = EXCLUDED.name
+                        INSERT INTO location (name, address, city, state, country, lat, lon)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
                         RETURNING location_id
                         """,
-                        (idea.get('venue_name', city), '', city, '', 'Canada')
+                        (idea.get('venue_name', city), '', city, '', 'Canada', idea.get('lat'), idea.get('lon'))
                     )
                     location_map[city] = cursor.fetchone()[0]
             
@@ -116,18 +115,19 @@ class JSONDatabaseSeeder:
             all_categories = set()
             for idea in ideas:
                 all_categories.update(idea.get('categories', []))
-            
+
             for category in all_categories:
-                cursor.execute(
-                    """
-                    INSERT INTO event_category (name) 
-                    VALUES (%s) 
-                    ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name 
-                    RETURNING category_id
-                    """,
-                    (category,)
-                )
-                category_map[category] = cursor.fetchone()[0]
+                # Check if category already exists
+                cursor.execute("SELECT category_id FROM event_category WHERE name = %s", (category,))
+                result = cursor.fetchone()
+                if result:
+                    category_map[category] = result[0]
+                else:
+                    cursor.execute(
+                        "INSERT INTO event_category (name) VALUES (%s) RETURNING category_id",
+                        (category,)
+                    )
+                    category_map[category] = cursor.fetchone()[0]
             
             self.conn.commit()
             logger.info(f"✅ Created {len(category_map)} categories")

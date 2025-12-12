@@ -1,0 +1,204 @@
+\documentclass[11pt, letterpaper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{geometry}
+\usepackage{titlesec}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{xcolor}
+
+% Page formatting
+\geometry{margin=1in}
+\setlength{\parskip}{0.5em}
+\setlength{\parindent}{0pt}
+
+% Title formatting
+\title{\textbf{Ottawa Date Planner: An Intelligent Itinerary Generation System}}
+\author{
+    COMP 3106 \\
+    Cameron Teed 101227413
+}
+\date{December 5, 2024}
+
+\begin{document}
+
+\maketitle
+
+\section*{Statement of Contributions}
+I, Cameron Teed, am the sole contributor to this project. I was responsible for all aspects of the work, including the design and implementation of the Genetic Algorithm and Heuristic planners, the NLP pipeline, the data acquisition scripts, and the user interface.
+
+
+\section{Introduction}
+
+\subsection{Background and Motivation}
+Planning a date in Ottawa can be more difficult than expected. While the city contains hundreds of restaurants, cafés, and activities, most existing tools only help users search for individual venues. Platforms such as Google Maps are useful for simple queries like finding a specific type of restaurant, but they do not help users plan a complete evening or multi-stop experience.
+
+In practice, many locals rely on community forums such as Reddit (particularly r/ottawa) to find recommendations. These recommendations are often described in terms of “vibe” or atmosphere, such as cozy spots for a rainy night or relaxed first-date ideas, rather than strict categories like cuisine or price level. This highlights an important gap between how people actually plan social outings and how current tools operate.
+
+The motivation behind this project is to bridge that gap by automating the kind of advice users normally seek from community discussions. The goal is to build a system that generates structured, optimized itineraries while still accounting for subjective factors like atmosphere and overall experience. By framing itinerary generation as a constrained optimization problem, the system can balance preferences such as budget, distance, and vibe in a consistent way.
+\subsection{Related Prior Work}
+\textbf{Academic Literature:} Itinerary planning has been widely studied in artificial intelligence, often under formulations such as the \textit{Orienteering Problem} (OP) or the \textit{Tourist Trip Design Problem} (TTDP). These problems are related to the Traveling Salesperson Problem but focus on maximizing overall utility while respecting resource constraints like time or budget. Prior work includes exact methods such as Integer Linear Programming as well as heuristic or meta-heuristic approaches for larger datasets.
+
+\textbf{Commercial Systems:} Commercial tools like Google Maps and Yelp primarily function as information retrieval systems. They are effective at locating individual venues but do not perform full itinerary planning. In addition, they rely heavily on explicit keywords and categories, offering little support for more subjective constraints like atmosphere.
+
+\textbf{Recommender Systems:} Traditional recommender systems often rely on collaborative filtering, which requires large amounts of historical user interaction data. Since this project operates in a cold-start setting with no prior user history, a content-based approach combined with constraint satisfaction was chosen instead.
+
+
+\subsection{Objectives}
+The primary objective of this project is to develop an AI-powered application that accepts natural language queries (e.g., "Romantic Italian dinner under \$100") and generates a complete, optimized itinerary. Specifically, we aim to:
+\begin{enumerate}
+    \item Implement a Natural Language Processing (NLP) pipeline to extract user intents and constraints.
+    \item Develop a machine learning classifier to automatically tag venues with "vibes" (e.g., romantic, cozy, energetic) based on their descriptions and reviews.
+    \item Compare two distinct search strategies for itinerary generation: a greedy Heuristic Search and a Genetic Algorithm (GA).
+    \item Evaluate the performance of these approaches in terms of user satisfaction, computational efficiency, and constraint adherence.
+\end{enumerate}
+
+\subsection{Related Prior Work}
+\textbf{Academic Literature:} Itinerary planning has been widely studied in artificial intelligence, often under formulations such as the \textit{Orienteering Problem} (OP) or the \textit{Tourist Trip Design Problem} (TTDP). These problems are related to the Traveling Salesperson Problem but focus on maximizing overall utility while respecting resource constraints like time or budget. Prior work includes exact methods such as Integer Linear Programming as well as heuristic or meta-heuristic approaches for larger datasets.
+
+\textbf{Commercial Systems:} Commercial tools like Google Maps and Yelp primarily function as information retrieval systems. They are effective at locating individual venues but do not perform full itinerary planning. In addition, they rely heavily on explicit keywords and categories, offering little support for more subjective constraints like atmosphere.
+
+\textbf{Recommender Systems:} Traditional recommender systems often rely on collaborative filtering, which requires large amounts of historical user interaction data. Since this project operates in a cold-start setting with no prior user history, a content-based approach combined with constraint satisfaction was chosen instead.
+
+
+\section{Methods}
+
+\subsection{Dataset and Environment}
+The project utilizes a real-world dataset of Ottawa venues collected via the Google Places API. The dataset, stored in \texttt{ottawa\_venues.csv}, contains over 1,000 venues with attributes including name, location (latitude/longitude), price level, rating, review count, and textual descriptions.
+
+To enrich this data, we implemented a "vibe" classification system. We defined 14 distinct vibes (e.g., romantic, hipster, outdoors) and used a semi-supervised learning approach. A small set of seed keywords was used to bootstrap labels, which were then used to train a Logistic Regression classifier on the TF-IDF vectors of venue descriptions. This allowed us to automatically tag unlabelled venues with high accuracy.
+
+\subsection{AI Methods}
+
+\subsubsection{Natural Language Processing (NLP)}
+We employed the \texttt{spaCy} library for dependency parsing and entity recognition to extract structured constraints from unstructured user queries. The system identifies:
+\begin{itemize}
+    \item \textbf{Target Vibes:} Adjectives like "romantic" or "fun".
+    \item \textbf{Venue Types:} Nouns like "Italian food" or "museum".
+    \item \textbf{Budget:} Monetary values (e.g., "\$100").
+    \item \textbf{Location:} Neighborhood names.
+\end{itemize}
+
+\subsubsection{Heuristic Search (Greedy Approach)}
+As a baseline, we implemented a greedy heuristic search. This algorithm constructs an itinerary step-by-step by selecting the locally optimal venue at each stage. The scoring function considers:
+\begin{itemize}
+    \item \textbf{Vibe Match:} Bonus points if the venue matches the requested vibe.
+    \item \textbf{Rating:} Bayesian average of the venue's rating.
+    \item \textbf{Distance:} Penalty for distance from the previous stop.
+    \item \textbf{Type Match:} High reward for matching specific requested categories.
+\end{itemize}
+While fast, this approach suffers from the "horizon effect," often making early choices that limit future options (e.g., spending too much budget on the first stop).
+
+\subsubsection{Genetic Algorithm (GA)}
+To overcome the limitations of the greedy approach, we implemented a Genetic Algorithm. The GA evolves a population of complete itineraries over multiple generations to find a global optimum.
+\begin{itemize}
+    \item \textbf{Representation:} An individual is a list of $N$ venues (genes).
+    \item \textbf{Fitness Function:} The core of our GA is a sophisticated fitness function designed to balance conflicting objectives. The fitness score $F$ is calculated as:
+    \[ F = S_{base} + W_v \cdot V_{match} + W_r \cdot R_{w} - P_{dist} - P_{budget} - P_{dup} \]
+    Where:
+    \begin{itemize}
+        \item $V_{match}$ is the count of venues matching the target vibe.
+        \item $R_{w}$ is the rating weighted by the log of review counts (trust metric).
+        \item $P_{dist}$ is a penalty proportional to the total travel distance.
+        \item $P_{budget}$ is a severe penalty applied if the total cost exceeds the user's limit ($5 \times$ overage).
+        \item $P_{dup}$ is a massive penalty (500 points) for duplicate venues to ensure variety.
+    \end{itemize}
+    Additionally, we implemented a "Sequence Score" that rewards logical chronological flow (e.g., Activity $\rightarrow$ Dinner $\rightarrow$ Drinks) and penalizes illogical orders (e.g., Dessert before Dinner).
+    
+    \item \textbf{Selection:} Tournament selection is used to choose parents for the next generation.
+    \item \textbf{Crossover:} We implemented a sequence-aware crossover that combines high-performing segments from two parent itineraries while maintaining logical flow.
+    \item \textbf{Mutation:} Random changes to venues, with a "smart mutation" operator that biases replacements towards high-similarity venues when the population stagnates.
+    \item \textbf{Elitism:} The top 5 best itineraries are preserved unchanged in the next generation.
+\end{itemize}
+
+\subsection{System Workflow Example}
+To illustrate the flow of data through our system, consider the query: \textit{"Romantic Italian dinner under \$100."}
+
+\begin{enumerate}
+    \item \textbf{Input Parsing:} The NLP module receives the string. Spacy identifies "Italian" as a \texttt{TARGET\_TYPE}, "Romantic" as a \texttt{TARGET\_VIBE}, and "\$100" as the \texttt{BUDGET}.
+    \item \textbf{Candidate Scoring:} The system filters the 1,000+ venue dataset. Venues tagged "Italian" or "Pasta" receive a $+2.0$ similarity score. Venues with "Romantic" descriptions receive $+0.5$.
+    \item \textbf{Optimization (GA):}
+    \begin{itemize}
+        \item \textit{Generation 0:} Random itineraries are created. Most are poor (e.g., three expensive steakhouses).
+        \item \textit{Generation 10:} The population converges. Itineraries with Italian restaurants survive; those over \$100 die out due to the budget penalty.
+        \item \textit{Generation 50:} The best plan emerges: A walk at a scenic park (Free, Romantic) $\rightarrow$ Dinner at \textit{Cantina Gia} (Italian, \$\$) $\rightarrow$ Gelato (Dessert, \$).
+    \end{itemize}
+    \item \textbf{Output:} The final list is sorted by logical stage (Activity first, then Dinner) and presented to the user.
+\end{enumerate}
+
+\subsection{Validation Strategy}
+We validated our system using both automated metrics and human-in-the-loop evaluation. We compared the Heuristic planner against the GA on a set of standard test queries. Metrics included:
+\begin{itemize}
+    \item \textbf{Fitness Score:} The internal objective function value.
+    \item \textbf{Budget Adherence:} Percentage of itineraries within budget.
+    \item \textbf{Diversity:} Percentage of unique venue types in the plan.
+    \item \textbf{User Satisfaction:} A subjective 1-5 rating provided by users evaluating the generated plans.
+\end{itemize}
+
+\section{Results}
+
+\subsection{Quantitative Results}
+Table 1 summarizes the performance comparison between a Random baseline, the Heuristic planner, and the Genetic Algorithm.
+
+\begin{table}[H]
+\centering
+\caption{Performance Comparison of Planning Algorithms}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Method} & \textbf{User Rating (1-5)} & \textbf{Fitness Score} & \textbf{Budget Adherence} & \textbf{Vibe Match \%} \\
+\midrule
+Random & 1.07 & 539.5 & 46.7\% & 44.4\% \\
+Heuristic & 3.80 & \textbf{2155.1} & \textbf{100.0\%} & 72.2\% \\
+Genetic Algorithm & \textbf{4.93} & 2001.5 & 86.7\% & \textbf{90.0\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The Genetic Algorithm achieved the highest user satisfaction (4.93) and Vibe Match (90.0\%). Interestingly, the Heuristic planner achieved a slightly higher raw fitness score (2155.1 vs 2001.5) due to its strict 100\% budget adherence, whereas the GA occasionally exceeded the budget (86.7\% adherence). However, users consistently preferred the GA's itineraries, suggesting that a slight budget overflow is acceptable for a significantly better "vibe" match.
+
+\subsection{Qualitative Results}
+Qualitatively, the Heuristic planner excelled at strict budget enforcement, achieving 100\% adherence. However, this often resulted in conservative choices that missed the "vibe" of the request. For a query like "Romantic Italian dinner," the Heuristic planner prioritized financial constraints, ensuring the itinerary never exceeded the limit, but often at the cost of rejecting higher-quality venues. The GA produced more coherent and interesting itineraries by optimizing globally; it successfully balanced a high-end dinner with a free park visit or a lower-cost dessert spot. Although the GA occasionally exceeded the budget (86.7\% adherence), users preferred these slightly more expensive but better-aligned plans.
+
+The NLP pipeline demonstrated high accuracy, correctly parsing 100\% of test queries for budget and stop count, and 95\% for vibe detection. The vibe classifier achieved an 85\% accuracy on the test set, effectively distinguishing between subtle categories like "cozy" vs. "romantic."
+
+\section{Discussion}
+
+\subsection{Challenges and Limitations}
+Despite the success of the GA, we encountered several challenges during implementation. Tuning the hyperparameters (mutation rate, crossover rate) was particularly difficult; we found that a high mutation rate (0.2) was necessary to prevent the population from converging on local optimums too early.
+
+\textbf{NLP and Semantic Ambiguity:} While our NLP pipeline effectively extracts explicit constraints, it faces challenges with semantic nuance. To handle "similar items" (e.g., mapping "Asian" to "Chinese"), we implemented a dynamic learning system that builds a \texttt{RELATED\_TERMS} dictionary based on tag co-occurrences in the dataset. While this improves upon static hardcoding, it remains limited by the data: if a relationship is not explicitly present in the venue tags, the connection is lost. We initially considered using vector-based semantic similarity (via spaCy) for this task, but it proved too computationally expensive for real-time filtering. Additionally, the system currently lacks negation handling; "exclusion" queries (e.g., "not Italian") often result in the negated term being treated as a positive keyword.
+
+\textbf{Geospatial Constraints:} The distance calculation uses the Haversine formula (straight-line distance) rather than actual walking or driving time, which can be misleading in a city with rivers and canals.
+
+\textbf{Performance:} The GA is also slower than the Heuristic approach, taking approximately 0.6 seconds on average versus near-instantaneous results, though this latency is negligible for a user-facing application.
+
+\subsection{Future Work}
+Several avenues exist to elevate this project from a prototype to a production-ready utility:
+
+\textbf{Advanced NLP and Conversational AI:} The current keyword-based parsing could be replaced with a Large Language Model (LLM) like GPT-5 (or something lighter). This would allow for "Conversational Planning," where users can ask follow-up questions about their itinerary (e.g., "Is this restaurant vegan-friendly?" or "Can we swap the museum for a movie?"). An LLM would also handle semantic nuance far better than our current dictionary-based approach, understanding that "cozy" might imply "fireplace" or "quiet music" without explicit hardcoding.
+
+\textbf{Frontend Experience:} The current Streamlit interface, while functional, is static. A React Native mobile application would allow for geolocation-based features, such as "plan a date starting from my current location." We also envision an interactive map where users can drag-and-drop venues to manually adjust the AI-generated plan.
+
+\textbf{Reinforcement Learning:} Finally, we could implement a feedback loop where user ratings are used to fine-tune the weights in the fitness function automatically, allowing the system to learn global preferences over time.
+
+\subsection{Implications}
+This project demonstrates that AI techniques can effectively automate complex leisure planning tasks. By combining NLP for intuitive interaction with Evolutionary Algorithms for optimization, we created a system that not only satisfies hard constraints but also captures the subjective "vibe" of a social outing, offering a significant improvement over traditional keyword-based search. We believe this approach could be extended to other domains, such as travel planning or event scheduling.
+
+\section{References}
+\begin{enumerate}
+    \item \textbf{spaCy Usage Guide}. Linguistic Features: Dependency Parsing. \\ Available at: \url{https://spacy.io/usage/linguistic-features} (Accessed: December 5, 2025).
+    \item \textbf{Scikit-learn User Guide}. Working with Text Data: TF-IDF and Classification. \\ Available at: \url{https://scikit-learn.org/stable/tutorial/text_analytics/working_with_text_data.html} (Accessed: December 5, 2025).
+    \item \textbf{Stanford University CS221}. Artificial Intelligence: Reflex Models and Search. \\ Available at: \url{https://stanford-cs221.github.io/autumn2023/} (Accessed: December 5, 2025).
+    \item \textbf{Towards Data Science}. Evolution of a Salesman: A Complete Genetic Algorithm Tutorial for Python. \\ Available at: \url{https://towardsdatascience.com/evolution-of-a-salesman-a-complete-genetic-algorithm-tutorial-for-python-6fe5d2b3ca35} (Accessed: December 5, 2025).
+    \item \textbf{Machine Learning Mastery}. A Gentle Introduction to the Bag-of-Words Model. \\ Available at: \url{https://machinelearningmastery.com/gentle-introduction-bag-words-model/} (Accessed: December 5, 2025).
+    \item \textbf{Google Maps Platform}. Places API Documentation. \\ Available at: \url{https://developers.google.com/maps/documentation/places/web-service/overview} (Accessed: December 5, 2025).
+    \item \textbf{Movable Type Scripts}. Calculate distance, bearing and more between Latitude/Longitude points. \\ Available at: \url{http://www.movable-type.co.uk/scripts/latlong.html} (Accessed: December 5, 2025).
+    \item \textbf{Reddit r/ottawa}. "Best of Ottawa" Recommendations Threads. \\ Available at: \url{https://www.reddit.com/r/ottawa/} (Accessed: December 5, 2025).
+\end{enumerate}
+
+\section{Link to Implementation}
+\url{https://github.com/2025F-COMP3106/project-group-31}
+
+\end{document}

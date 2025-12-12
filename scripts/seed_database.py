@@ -278,14 +278,77 @@ class DatabaseSeeder:
         """Main seeding function"""
         try:
             self.connect_db()
-            
+
             if queries is None:
+                # Comprehensive search queries covering all date types
                 queries = [
+                    # Romantic dates
                     "restaurants romantic date",
+                    "fine dining upscale",
+                    "wine bars cozy",
+                    "rooftop bars sunset views",
+
+                    # Casual dates
+                    "casual restaurants",
+                    "coffee shops cafes",
+                    "casual bars pubs",
+                    "food courts casual dining",
+
+                    # Adventurous dates
                     "activities outdoor adventure",
+                    "hiking trails nature",
+                    "rock climbing adventure sports",
+                    "kayaking water sports",
+                    "zip lining extreme sports",
+
+                    # Foodie dates
+                    "food tours culinary",
+                    "farmers markets local food",
+                    "food festivals",
+                    "cooking classes",
+                    "street food markets",
+
+                    # Cozy dates
+                    "bookstores libraries",
+                    "board game cafes",
+                    "tea houses",
+                    "art galleries",
+                    "independent bookshops",
+
+                    # Cultural dates
                     "museums cultural attractions",
+                    "art galleries exhibitions",
+                    "theaters live performances",
+                    "concert venues music",
+                    "historical sites landmarks",
+
+                    # Outdoor dates
                     "parks scenic views",
-                    "entertainment nightlife"
+                    "picnic areas",
+                    "botanical gardens",
+                    "nature reserves",
+                    "waterfront parks",
+
+                    # Entertainment dates
+                    "entertainment nightlife",
+                    "comedy clubs",
+                    "karaoke bars",
+                    "dance clubs",
+                    "live music venues",
+
+                    # Active dates
+                    "sports bars",
+                    "bowling alleys",
+                    "mini golf",
+                    "ice skating rinks",
+                    "tennis courts",
+
+                    # Unique dates
+                    "escape rooms",
+                    "virtual reality arcades",
+                    "paint and sip studios",
+                    "pottery classes",
+                    "dance studios"
                 ]
             
             all_ideas = []

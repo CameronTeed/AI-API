@@ -12,13 +12,21 @@ import logging
 from ..ml_service_integration import get_ml_service
 from ..core.ml_integration import get_ml_wrapper
 from ..core.search_engine import get_search_engine
+from ..tools.vector_search import get_vector_store
+from ..tools.web_search import get_web_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/ml", tags=["ml-service"])
 
 ml_service = get_ml_service()
 ml_wrapper = get_ml_wrapper()
-search_engine = get_search_engine()
+
+# Lazy-load search engine with proper initialization
+def _get_search_engine():
+    """Get search engine with proper vector store initialization"""
+    vector_store = get_vector_store()
+    web_client = get_web_client()
+    return get_search_engine(vector_store=vector_store, web_client=web_client)
 
 
 # Request/Response Models
@@ -137,6 +145,7 @@ async def integrated_search(request: IntegratedSearchRequest):
         target_vibes = request.target_vibes or predicted_vibes
 
         # Search with vibe filtering
+        search_engine = _get_search_engine()
         results = await search_engine.vibe_filtered_search(
             request.query, target_vibes, request.limit
         )
@@ -176,6 +185,7 @@ async def comprehensive_date_planning(request: DatePlanningRequest):
         predicted_vibes = ml_wrapper.predict_vibe(request.query).split(', ')
 
         # Search for relevant venues
+        search_engine = _get_search_engine()
         search_results = await search_engine.vibe_filtered_search(
             request.query, predicted_vibes, limit=20
         )

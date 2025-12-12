@@ -1,4 +1,4 @@
-.PHONY: help install setup compile-protos test start-server kill-server web-ui clean
+.PHONY: help install setup compile-protos test start-server kill-server web-ui clean add-italian-venues fetch-venues
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -36,6 +36,18 @@ web-ui:  ## Start the admin web UI for managing date ideas
 
 inspect-db:  ## Inspect vector store statistics
 	PYTHONPATH=. python3 inspect_vector_store.py
+
+add-italian-venues:  ## Add Italian restaurants to Ottawa database
+	@echo "🍝 Adding Italian restaurants to Ottawa database..."
+	python3 ../add_italian_venues.py
+	@echo "✅ Italian venues added successfully!"
+
+fetch-venues:  ## Fetch venues from Google Places API and store in PostgreSQL database
+	@echo "🌍 Fetching venues from Google Places API..."
+	@echo "📊 This will take 2-3 hours to complete (150+ search queries)"
+	@echo "⏱️  Automatic rate limiting: 1 second between queries"
+	@echo ""
+	@bash start-data-collection.sh
 
 clean:  ## Clean generated files and caches
 	rm -f *_pb2.py *_pb2_grpc.py

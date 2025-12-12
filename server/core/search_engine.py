@@ -31,16 +31,22 @@ class SearchEngine:
         if not self.vector_store:
             logger.warning("Vector store not available")
             return []
-        
+
         try:
-            results = await self.vector_store.search(query, limit=limit, filters=filters)
-            
+            # Note: vector_store.search is synchronous, not async
+            # Build search parameters
+            search_params = {'query': query, 'top_k': limit}
+            if filters:
+                search_params.update(filters)
+
+            results = self.vector_store.search(**search_params)
+
             # Enrich results with vibe predictions
             for result in results:
                 if 'title' in result and 'description' in result:
                     text = f"{result['title']} {result['description']}"
                     result['predicted_vibe'] = self.ml_wrapper.predict_vibe(text)
-            
+
             return results
         except Exception as e:
             logger.error(f"Semantic search error: {e}")
@@ -103,14 +109,28 @@ class SearchEngine:
     ) -> List[Dict[str, Any]]:
         """Search and filter by target vibes"""
         try:
-            results = await self.semantic_search(query, limit=limit * 2)
-            
-            # Filter by vibe
+            # Fetch more results to ensure we get good matches even if they're not top-ranked
+            results = await self.semantic_search(query, limit=limit * 5)
+            logger.info(f"🔍 Semantic search returned {len(results)} results for query: '{query}'")
+
+            if results:
+                logger.info(f"📊 Top results: {[r.get('title', 'Unknown') for r in results[:3]]}")
+                logger.info(f"📊 Vibes: {[r.get('predicted_vibe', 'Unknown') for r in results[:3]]}")
+
+            # Filter by vibe - be more lenient
+            # First try exact vibe matches
             filtered = [
                 r for r in results
                 if any(vibe.lower() in r.get('predicted_vibe', '').lower() for vibe in target_vibes)
             ]
-            
+
+            logger.info(f"✅ Found {len(filtered)} venues with exact vibe match for {target_vibes}")
+
+            # If no exact matches, return all semantic results (vibe is just a hint, not a hard filter)
+            if not filtered:
+                logger.info(f"⚠️  No exact vibe matches for {target_vibes}, returning all {len(results)} semantic results")
+                filtered = results
+
             return filtered[:limit]
         except Exception as e:
             logger.error(f"Vibe-filtered search error: {e}")
@@ -124,7 +144,15 @@ _search_engine = None
 def get_search_engine(vector_store=None, web_client=None) -> SearchEngine:
     """Get or create search engine instance"""
     global _search_engine
-    if _search_engine is None:
+
+    # If parameters are provided, always reinitialize (important for proper initialization)
+    if vector_store is not None or web_client is not None:
         _search_engine = SearchEngine(vector_store, web_client)
+        logger.info(f"🔄 SearchEngine reinitialized with vector_store={vector_store is not None}, web_client={web_client is not None}")
+    elif _search_engine is None:
+        # Only create default instance if no parameters provided and no instance exists
+        _search_engine = SearchEngine(vector_store, web_client)
+        logger.info("🆕 SearchEngine created with default parameters")
+
     return _search_engine
 

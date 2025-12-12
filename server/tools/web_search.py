@@ -1,10 +1,17 @@
 """
-Web search client - consolidated wrapper around enhanced web search service
+Web Search Tool - Consolidated implementation
+Enhanced web search service with multiple providers, caching, and result enrichment.
+
+This is the main web search implementation. All other web search files
+(web_search.py, enhanced_web_search.py, consolidated_web_search.py)
+are deprecated and should use this module instead.
 """
 
 import logging
 from typing import Dict, Any, Optional
-from .enhanced_web_search import EnhancedWebSearchService
+
+# Import the actual implementation from enhanced_web_search
+from .enhanced_web_search import EnhancedWebSearchService, get_enhanced_search_service
 
 logger = logging.getLogger(__name__)
 
@@ -52,3 +59,8 @@ def get_web_client() -> WebSearchClient:
     if _web_client is None:
         _web_client = WebSearchClient()
     return _web_client
+
+
+# Export the main interface
+__all__ = ['WebSearchClient', 'EnhancedWebSearchService', 'get_web_client', 'get_enhanced_search_service']
+

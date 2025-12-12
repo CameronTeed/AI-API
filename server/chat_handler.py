@@ -6,19 +6,21 @@ from typing import AsyncIterator, List, Dict, Any, Optional
 import grpc
 from grpc import aio
 
-from .tools.vector_store import get_vector_store
+from .tools.vector_search import get_vector_store
 from .tools.web_search import get_web_client
 from .tools.agent_tools import get_agent_tools
-from .tools.agent_tools_enhanced import get_enhanced_agent_tools
 from .tools.chat_context_storage import get_chat_storage
-from .llm.engine import LLMEngine
-from .llm.engine_enhanced import get_enhanced_llm_engine
+from .llm.engine import LLMEngine, get_llm_engine
 from .core.ml_integration import get_ml_wrapper
 from .core.search_engine import get_search_engine
 from .schemas import StructuredAnswer, Option, Citation
 from .utils import price_tier_to_symbol, build_logistics, detect_source, safe_url
+import os
 
 # Import generated protobuf files
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 import chat_service_pb2
 import chat_service_pb2_grpc
 
@@ -29,26 +31,25 @@ class EnhancedChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
 
     def __init__(self):
         logger.debug("🔧 Initializing Enhanced ChatHandler")
-        self.llm_engine = LLMEngine()
-        logger.debug("✅ Enhanced LLMEngine initialized")
 
-        # Initialize enhanced components with ML integration
-        self.enhanced_llm_engine = get_enhanced_llm_engine()
-        logger.debug("✅ Enhanced LLMEngine with ML integration initialized")
-
+        # Initialize vector store and web client FIRST (needed by LLM engine)
         self.vector_store = get_vector_store()
         logger.debug("✅ Vector store initialized")
 
         self.web_client = get_web_client()
         logger.debug("✅ Web client initialized")
 
-        # Initialize enhanced agent tools
-        self.agent_tools = get_enhanced_agent_tools()
-        logger.debug("✅ Enhanced agent tools initialized")
+        # Initialize main LLM engine with vector store and web client (optimized for cost-efficiency)
+        self.llm_engine = get_llm_engine(vector_store=self.vector_store, web_client=self.web_client)
+        logger.debug("✅ LLMEngine initialized (ML-first, cost-efficient)")
+
+        # Initialize agent tools
+        self.agent_tools = get_agent_tools()
+        logger.debug("✅ Agent tools initialized")
 
         # Initialize ML and search services
         self.ml_wrapper = get_ml_wrapper()
-        self.search_engine = get_search_engine()
+        self.search_engine = get_search_engine(vector_store=self.vector_store, web_client=self.web_client)
         logger.debug("✅ ML and search services initialized")
 
         self.chat_storage = get_chat_storage()
@@ -178,20 +179,17 @@ class EnhancedChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
             buffer = ""
             buffer_size = 50  # Send chunks when buffer reaches this size
 
-            # Use enhanced LLM engine with ML integration
-            async for text_chunk in self.enhanced_llm_engine.run_chat(
+            # Use LLM engine for chat
+            logger.info(f"🚀 Using LLM engine for chat")
+            async for text_chunk in self.llm_engine.run_chat(
                 messages=messages,
-                agent_tools=self.agent_tools,  # Pass enhanced agent tools
+                agent_tools=self.agent_tools,
                 session_id=session_id,
                 constraints=constraints,
                 user_location=user_location
             ):
-                # Check for external cancellation every 10 chunks to support stateless scaling
-                if chunk_count % 10 == 0:
-                    if not await self.chat_storage.is_session_active(session_id):
-                        logger.info(f"🛑 [CHAT_ABORT] Session {session_id} was deactivated externally")
-                        await context.abort(grpc.StatusCode.CANCELLED, "Chat terminated externally")
-                        return
+                # Note: Removed external cancellation check during streaming to avoid database errors
+                # The session will be deactivated in the finally block
 
                 full_response += text_chunk
                 buffer += text_chunk
@@ -262,10 +260,8 @@ class EnhancedChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
 
         except Exception as e:
             logger.error(f"💥 [ENHANCED_CHAT_ERROR] Enhanced chat failed: {e}", exc_info=True)
-            await context.abort(
-                grpc.StatusCode.INTERNAL, 
-                f"Internal error: {str(e)}"
-            )
+            # Don't call abort during streaming - just stop yielding
+            # The client will detect the stream ended without a done signal
         finally:
             # Clean up session tracking
             if session_id in self.active_sessions:
@@ -279,11 +275,16 @@ class EnhancedChatHandler(chat_service_pb2_grpc.AiOrchestratorServicer):
     def _extract_structured_answer(self, response_text: str) -> Optional[chat_service_pb2.StructuredAnswer]:
         """Extract structured answer from LLM response"""
         try:
-            logger.info("🔧 [EXTRACT_PARSING] Calling enhanced LLM engine to parse structured answer")
-            
+            logger.info("🔧 [EXTRACT_PARSING] Attempting to extract structured answer from response")
+
+            # Check if LLMEngine has parse_structured_answer method
+            if not hasattr(self.llm_engine, 'parse_structured_answer'):
+                logger.info("ℹ️  [EXTRACT_SKIP] LLMEngine does not have parse_structured_answer method, skipping structured extraction")
+                return None
+
             # Try to parse JSON from the response
             structured_data = self.llm_engine.parse_structured_answer(response_text)
-            
+
             if not structured_data:
                 logger.warning("⚠️ [EXTRACT_EMPTY] Enhanced LLM engine returned empty structured data")
                 return None

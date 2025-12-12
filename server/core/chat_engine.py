@@ -7,19 +7,24 @@ import logging
 from typing import List, Dict, Any, Optional, AsyncIterator
 from .ml_integration import get_ml_wrapper
 from .search_engine import get_search_engine
+from ..tools.vector_search import get_vector_store
+from ..tools.web_search import get_web_client
 
 logger = logging.getLogger(__name__)
 
 
 class ChatEngine:
     """Simplified chat engine with ML integration"""
-    
+
     def __init__(self, llm_engine=None, agent_tools=None):
         """Initialize chat engine"""
         self.llm_engine = llm_engine
         self.agent_tools = agent_tools
         self.ml_wrapper = get_ml_wrapper()
-        self.search_engine = get_search_engine()
+        # Initialize search engine with proper vector store
+        vector_store = get_vector_store()
+        web_client = get_web_client()
+        self.search_engine = get_search_engine(vector_store=vector_store, web_client=web_client)
         logger.info("✅ ChatEngine initialized")
     
     async def process_chat(

@@ -22,7 +22,6 @@ async def health_status():
 
         handler = EnhancedChatHandler()
         ml_wrapper = get_ml_wrapper()
-        search_engine = get_search_engine()
 
         health_details = {
             "llm_engine": "healthy" if handler.llm_engine else "unhealthy",
@@ -31,7 +30,7 @@ async def health_status():
             "agent_tools": "healthy" if handler.agent_tools else "unhealthy",
             "chat_storage": "healthy" if handler.chat_storage else "unhealthy",
             "ml_service": "healthy" if ml_wrapper else "unhealthy",
-            "search_engine": "healthy" if search_engine else "unhealthy",
+            "search_engine": "healthy" if handler.search_engine else "unhealthy",
         }
 
         overall_status = "healthy" if all(v == "healthy" for v in health_details.values()) else "degraded"

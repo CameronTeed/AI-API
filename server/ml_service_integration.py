@@ -1,6 +1,7 @@
 """
 ML Service Integration Layer
 Integrates the ML service (vibe prediction, date planning) with the main server
+Uses the final/ folder as the ML service source
 """
 
 import sys
@@ -10,18 +11,18 @@ from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# Import ML service components
+# Import ML service components from final/ folder
 try:
-    ml_service_path = Path(__file__).parent.parent / 'ml_service'
+    ml_service_path = Path(__file__).parent.parent / 'final'
     sys.path.insert(0, str(ml_service_path))
-    
+
     import nlp_classifier
     import heuristic_planner
     import ga_planner
     import planner_utils
-    
+
     ML_SERVICE_AVAILABLE = True
-    logger.info("✅ ML Service loaded successfully")
+    logger.info("✅ ML Service loaded successfully from final/ folder")
 except ImportError as e:
     ML_SERVICE_AVAILABLE = False
     logger.warning(f"⚠️  ML Service not available: {e}")
@@ -69,12 +70,14 @@ class MLServiceIntegration:
         """Plan a date using genetic algorithm"""
         if not self.available:
             return None
-        
+
         try:
             result = ga_planner.plan_date(preferences)
             return result
         except Exception as e:
             logger.warning(f"Error planning date (genetic): {e}")
+            import traceback
+            logger.debug(f"GA traceback: {traceback.format_exc()}")
             return None
     
     def learn_from_data(self, df) -> None:

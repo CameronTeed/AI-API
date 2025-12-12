@@ -1,0 +1,38 @@
+======================================================================
+OTTAWA DATE PLANNER - EVALUATION RESULTS
+Date: 2025-12-05 22:37
+======================================================================
+
+PLANNER COMPARISON RESULTS
+--------------------------------------------------
+
+Table 1: User Satisfaction Ratings (1-5 scale)
+Method       Mean     Std      Min    Max   
+----------------------------------------
+Random       1.07     0.25     1      2     
+Heuristic    3.80     0.54     3      5     
+GA           4.93     0.25     4      5     
+
+Table 2: Automated Performance Metrics
+Method       Budget%    Diversity%   Vibe%      Fitness
+-------------------------------------------------------
+Random       46.7       97.8         44.4       539.5
+Heuristic    100.0      96.7         72.2       2155.1
+GA           86.7       94.4         90.0       2001.5
+
+GA Convergence: Mean=1.02s, Std=0.28s
+
+NLP QUERY PARSING RESULTS
+--------------------------------------------------
+Overall Accuracy: 100.0%
+
+Field-Level Accuracy:
+  vibes: 95.0%
+  types: 90.0%
+  budget: 100.0%
+  stops: 100.0%
+
+VENUE VIBE CLASSIFICATION RESULTS
+--------------------------------------------------
+Overall Accuracy: 65.0%
+

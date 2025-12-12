@@ -70,7 +70,7 @@ class ChatContextStorage:
                         is_active BOOLEAN DEFAULT TRUE
                     );
                 """)
-                
+
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS chat_messages (
                         message_id SERIAL PRIMARY KEY,
@@ -83,7 +83,7 @@ class ChatContextStorage:
                         embedding vector(384) -- For semantic search of chat history
                     );
                 """)
-                
+
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS chat_tool_calls (
                         call_id SERIAL PRIMARY KEY,
@@ -96,7 +96,7 @@ class ChatContextStorage:
                         execution_time_ms INTEGER
                     );
                 """)
-                
+
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS chat_context_summaries (
                         summary_id SERIAL PRIMARY KEY,
@@ -108,23 +108,35 @@ class ChatContextStorage:
                         summary_embedding vector(384)
                     );
                 """)
-                
+
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS session_itineraries (
+                        itinerary_id SERIAL PRIMARY KEY,
+                        session_id VARCHAR(255) REFERENCES chat_sessions(session_id) ON DELETE CASCADE,
+                        itinerary_data JSONB NOT NULL,
+                        vibe VARCHAR(255),
+                        budget_limit FLOAT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        is_current BOOLEAN DEFAULT TRUE
+                    );
+                """)
+
                 # Create indexes for performance
                 await conn.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_chat_messages_session_timestamp 
+                    CREATE INDEX IF NOT EXISTS idx_chat_messages_session_timestamp
                     ON chat_messages(session_id, timestamp);
                 """)
-                
+
                 await conn.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_active 
+                    CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_active
                     ON chat_sessions(user_id, is_active);
                 """)
-                
+
                 await conn.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_chat_tool_calls_session 
+                    CREATE INDEX IF NOT EXISTS idx_chat_tool_calls_session
                     ON chat_tool_calls(session_id, timestamp);
                 """)
-                
+
                 await conn.commit()
                 logger.info("✅ Chat context tables created/verified")
                 return True
@@ -147,11 +159,11 @@ class ChatContextStorage:
                         updated_at = CURRENT_TIMESTAMP,
                         is_active = TRUE
                 """, (session_id, user_id, json.dumps(metadata or {})))
-                
+
                 await conn.commit()
                 logger.info(f"✅ Chat session created: {session_id}")
                 return True
-                
+
         except Exception as e:
             logger.error(f"Error creating chat session {session_id}: {e}")
             return False
@@ -223,22 +235,22 @@ class ChatContextStorage:
         try:
             async with self.pool.connection() as conn:
                 await conn.execute("""
-                    INSERT INTO chat_tool_calls 
+                    INSERT INTO chat_tool_calls
                     (session_id, message_id, tool_name, tool_arguments, tool_result, execution_time_ms)
                     VALUES (%s, %s, %s, %s, %s, %s)
                 """, (
                     session_id,
-                    message_id, 
+                    message_id,
                     tool_name,
                     json.dumps(tool_arguments),
                     json.dumps(tool_result),
                     execution_time_ms
                 ))
-                
+
                 await conn.commit()
                 logger.debug(f"🔧 Tool call stored: {tool_name} for session {session_id}")
                 return True
-                
+
         except Exception as e:
             logger.error(f"Error storing tool call: {e}")
             return False
@@ -305,12 +317,12 @@ class ChatContextStorage:
             async with self.pool.connection() as conn:
                 tool_result = await conn.execute("""
                     SELECT tool_name, tool_arguments, tool_result, timestamp, execution_time_ms
-                    FROM chat_tool_calls 
-                    WHERE session_id = %s 
-                    ORDER BY timestamp DESC 
+                    FROM chat_tool_calls
+                    WHERE session_id = %s
+                    ORDER BY timestamp DESC
                     LIMIT %s
                 """, (session_id, context_length))
-                
+
                 tool_calls = []
                 for row in await tool_result.fetchall():
                     tool_calls.append({
@@ -320,13 +332,13 @@ class ChatContextStorage:
                         'timestamp': row[3].isoformat(),
                         'execution_time_ms': row[4]
                     })
-                
+
                 # Get session summaries
                 summary_result = await conn.execute("""
                     SELECT summary_text, message_range_start, message_range_end, created_at
-                    FROM chat_context_summaries 
-                    WHERE session_id = %s 
-                    ORDER BY created_at DESC 
+                    FROM chat_context_summaries
+                    WHERE session_id = %s
+                    ORDER BY created_at DESC
                     LIMIT 3
                 """, (session_id,))
                 
@@ -419,14 +431,14 @@ class ChatContextStorage:
             
             async with self.pool.connection() as conn:
                 result = await conn.execute("""
-                    DELETE FROM chat_sessions 
+                    DELETE FROM chat_sessions
                     WHERE updated_at < %s AND is_active = FALSE
                     RETURNING session_id
                 """, (cutoff_date,))
-                
+
                 deleted_sessions = await result.fetchall()
                 await conn.commit()
-                
+
                 count = len(deleted_sessions)
                 logger.info(f"🧹 Cleaned up {count} old chat sessions")
                 return count
@@ -443,15 +455,15 @@ class ChatContextStorage:
         try:
             async with self.pool.connection() as conn:
                 await conn.execute("""
-                    UPDATE chat_sessions 
+                    UPDATE chat_sessions
                     SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
                     WHERE session_id = %s
                 """, (session_id,))
-                
+
                 await conn.commit()
                 logger.info(f"🔒 Session deactivated: {session_id}")
                 return True
-                
+
         except Exception as e:
             logger.error(f"Error deactivating session {session_id}: {e}")
             return False
@@ -460,17 +472,81 @@ class ChatContextStorage:
         """Check if a session is active"""
         if not self.pool:
             return False
-            
+
         try:
             async with self.pool.connection() as conn:
-                result = await conn.execute("""
-                    SELECT is_active FROM chat_sessions WHERE session_id = %s
-                """, (session_id,))
+                result = await conn.execute(
+                    "SELECT is_active FROM chat_sessions WHERE session_id = %s",
+                    (session_id,)
+                )
                 row = await result.fetchone()
                 return row[0] if row else False
         except Exception as e:
-            logger.error(f"Error checking session status {session_id}: {e}")
+            logger.debug(f"Error checking session status {session_id}: {e}")
+            # Return True to allow streaming to continue even if we can't check
+            return True
+
+    async def store_itinerary(self, session_id: str, itinerary: List[Dict[str, Any]], vibe: str, budget_limit: float) -> bool:
+        """Store the current itinerary for a session"""
+        if not self.pool:
             return False
+
+        try:
+            async with self.pool.connection() as conn:
+                # Mark previous itineraries as not current
+                await conn.execute("""
+                    UPDATE session_itineraries
+                    SET is_current = FALSE
+                    WHERE session_id = %s
+                """, (session_id,))
+
+                # Insert new itinerary
+                await conn.execute("""
+                    INSERT INTO session_itineraries (session_id, itinerary_data, vibe, budget_limit, is_current)
+                    VALUES (%s, %s, %s, %s, TRUE)
+                """, (session_id, json.dumps(itinerary), vibe, budget_limit))
+
+                await conn.commit()
+                logger.info(f"✅ Stored itinerary for session {session_id} with {len(itinerary)} venues")
+                return True
+        except Exception as e:
+            logger.error(f"Error storing itinerary for session {session_id}: {e}")
+            return False
+
+    async def get_current_itinerary(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Get the current itinerary for a session"""
+        if not self.pool:
+            return None
+
+        try:
+            async with self.pool.connection() as conn:
+                result = await conn.execute("""
+                    SELECT itinerary_data, vibe, budget_limit, created_at
+                    FROM session_itineraries
+                    WHERE session_id = %s AND is_current = TRUE
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                """, (session_id,))
+
+                row = await result.fetchone()
+                if row:
+                    # row[0] is already deserialized by psycopg (JSONB returns as Python object)
+                    itinerary_data = row[0]
+                    if isinstance(itinerary_data, str):
+                        itinerary_data = json.loads(itinerary_data)
+
+                    return {
+                        'itinerary': itinerary_data,
+                        'vibe': row[1],
+                        'budget_limit': row[2],
+                        'created_at': row[3]
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"Error retrieving itinerary for session {session_id}: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
 
     async def close(self):
         """Close the connection pool"""
