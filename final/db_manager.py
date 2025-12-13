@@ -13,6 +13,12 @@ from psycopg2.extras import RealDictCursor, execute_values
 from psycopg2.pool import SimpleConnectionPool
 import numpy as np
 from sentence_transformers import SentenceTransformer
+from dotenv import load_dotenv
+
+# Load environment variables from parent directory
+_env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+if os.path.exists(_env_path):
+    load_dotenv(_env_path)
 
 # Initialize connection pool
 _pool = None
@@ -103,6 +109,8 @@ def create_tables():
                     type VARCHAR(100),
                     google_maps_uri TEXT,
                     website_uri TEXT,
+                    regular_opening_hours TEXT,
+                    current_opening_hours TEXT,
                     description TEXT,
                     review TEXT,
                     review_summary TEXT,
@@ -210,6 +218,8 @@ def insert_venues(venues: List[Dict]) -> int:
                     venue.get('type'),
                     venue.get('google_maps_uri'),
                     venue.get('website_uri'),
+                    venue.get('regular_opening_hours', ''),
+                    venue.get('current_opening_hours', ''),
                     venue.get('description'),
                     venue.get('review'),
                     venue.get('review_summary'),
@@ -244,16 +254,16 @@ def insert_venues(venues: List[Dict]) -> int:
                     INSERT INTO venues (
                         id, name, address, short_address, lat, lon, rating, reviews_count,
                         price_level, cost, primary_type, primary_type_display_name, all_types,
-                        type, google_maps_uri, website_uri, description, review, review_summary,
-                        neighborhood_summary, true_vibe, serves_dessert, serves_coffee, serves_beer,
-                        serves_wine, serves_cocktails, serves_vegetarian, serves_breakfast,
-                        serves_brunch, serves_lunch, serves_dinner, good_for_groups,
-                        good_for_children, good_for_watching_sports, live_music, outdoor_seating,
-                        allows_dogs, reservable, takeout, delivery, dine_in,
+                        type, google_maps_uri, website_uri, regular_opening_hours, current_opening_hours,
+                        description, review, review_summary, neighborhood_summary, true_vibe,
+                        serves_dessert, serves_coffee, serves_beer, serves_wine, serves_cocktails,
+                        serves_vegetarian, serves_breakfast, serves_brunch, serves_lunch, serves_dinner,
+                        good_for_groups, good_for_children, good_for_watching_sports, live_music,
+                        outdoor_seating, allows_dogs, reservable, takeout, delivery, dine_in,
                         description_embedding, name_embedding
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                              %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                              %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (id) DO UPDATE SET
                         updated_at = CURRENT_TIMESTAMP
                 """, data)
@@ -278,6 +288,77 @@ def get_all_venues() -> pd.DataFrame:
         return df
     except Exception as e:
         print(f"✗ Error fetching venues: {e}")
+        return pd.DataFrame()
+    finally:
+        return_connection(conn)
+
+def get_venues_for_ga(vibes: List[str] = None, types: List[str] = None,
+                      max_cost: int = None, min_rating: float = 0,
+                      limit: int = 500) -> pd.DataFrame:
+    """
+    OPTIMIZED: Get venues for genetic algorithm with smart filtering.
+
+    Loads only needed columns and filters at database level.
+    Much faster than get_all_venues() for GA operations.
+
+    Args:
+        vibes: List of target vibes to filter by
+        types: List of target types to filter by
+        max_cost: Maximum cost filter
+        min_rating: Minimum rating filter
+        limit: Maximum number of venues to return
+
+    Returns:
+        DataFrame with venues optimized for GA
+    """
+    conn = get_connection()
+    try:
+        # Only load columns needed for GA (not all 40+ columns)
+        # Includes Google Places info for frontend display
+        columns = [
+            'id', 'name', 'address', 'short_address', 'lat', 'lon', 'rating', 'reviews_count', 'cost',
+            'type', 'all_types', 'primary_type_display_name', 'true_vibe',
+            'serves_dessert', 'serves_coffee', 'serves_beer', 'serves_wine',
+            'serves_cocktails', 'good_for_groups', 'good_for_children',
+            'live_music', 'outdoor_seating', 'allows_dogs', 'reservable',
+            'google_maps_uri', 'website_uri', 'regular_opening_hours', 'current_opening_hours',
+            'description', 'review_summary', 'price_level'
+        ]
+        columns_str = ', '.join(columns)
+
+        sql = f"SELECT {columns_str} FROM venues WHERE 1=1"
+        params = []
+
+        # Filter by vibes at database level
+        if vibes:
+            vibe_conditions = " OR ".join([f"true_vibe ILIKE %s" for _ in vibes])
+            sql += f" AND ({vibe_conditions})"
+            params.extend([f"%{v}%" for v in vibes])
+
+        # Filter by types at database level
+        if types:
+            type_conditions = " OR ".join([f"type ILIKE %s" for _ in types])
+            sql += f" AND ({type_conditions})"
+            params.extend([f"%{t}%" for t in types])
+
+        # Filter by cost at database level
+        if max_cost:
+            sql += " AND cost <= %s"
+            params.append(max_cost)
+
+        # Filter by rating at database level
+        if min_rating > 0:
+            sql += " AND rating >= %s"
+            params.append(min_rating)
+
+        # Order by rating and limit
+        sql += " ORDER BY rating DESC LIMIT %s"
+        params.append(limit)
+
+        df = pd.read_sql(sql, conn, params=params)
+        return df
+    except Exception as e:
+        print(f"✗ Error fetching venues for GA: {e}")
         return pd.DataFrame()
     finally:
         return_connection(conn)

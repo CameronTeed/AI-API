@@ -11,6 +11,7 @@ import re
 from typing import AsyncIterator, List, Dict, Any, Optional
 from ..core.ml_integration import get_ml_wrapper
 from ..core.search_engine import get_search_engine
+from ..ml.input_validator import InputValidator
 from openai import AsyncOpenAI
 
 try:
@@ -18,7 +19,131 @@ try:
 except ImportError:
     ScoringConfig = None
 
+# Pre-trained zero-shot classification model for intent detection
+try:
+    from transformers import pipeline
+    ZERO_SHOT_CLASSIFIER = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
+    ML_CLASSIFIER_AVAILABLE = True
+except ImportError:
+    ZERO_SHOT_CLASSIFIER = None
+    ML_CLASSIFIER_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
+
+
+# Intent classification keywords - data-driven, easily extensible
+INTENT_KEYWORDS = {
+    "new_request": {
+        "keywords": ["find me", "search for", "suggest", "recommend", "show me", "give me", "look for",
+                     "looking for", "another date", "different date", "new date", "other date",
+                     "instead of", "rather than", "how about a", "what about a", "try something"],
+        "weight": 1.0
+    },
+    "modification": {
+        "keywords": ["don't like", "didn't like", "hate", "dislike", "not interested", "skip", "remove", "exclude",
+                     "don't want", "didn't want", "wouldn't", "can't", "won't", "replace", "change", "swap", "substitute",
+                     "too expensive", "too cheap", "too far", "too close", "too crowded", "too quiet", "too busy", "too slow"],
+        "weight": 1.5  # Higher weight for strong indicators
+    },
+    "detail_question": {
+        "keywords": ["hours", "open", "close", "time", "reservation", "booking", "reserve", "book",
+                     "parking", "cost", "price", "distance", "travel time", "directions", "address", "phone", "website", "menu",
+                     "vegetarian", "vegan", "gluten", "allergy", "dietary", "wheelchair", "accessible", "pet friendly", "kids", "family",
+                     "dress code", "atmosphere", "noise level", "wifi", "outdoor", "indoor", "ambiance", "vibe",
+                     "tell me", "explain", "describe", "more about", "details about", "information about",
+                     "what", "how", "where", "when", "why", "which", "do they", "can i", "is there", "are there"],
+        "weight": 1.2
+    },
+    "reference_to_previous": {
+        "keywords": ["this", "that", "these", "those", "the", "it", "they", "them", "first", "second", "third", "one", "another", "both"],
+        "weight": 0.8  # Contextual indicator
+    }
+}
+
+
+def _score_intent_ml(user_message: str) -> Dict[str, float]:
+    """
+    Score intent using pre-trained zero-shot classification model.
+    Uses facebook/bart-large-mnli for semantic understanding.
+
+    Returns a dict with intent types and their confidence scores (0-1).
+    """
+    if not ML_CLASSIFIER_AVAILABLE or ZERO_SHOT_CLASSIFIER is None:
+        return {}
+
+    try:
+        # Define candidate labels for intent classification
+        candidate_labels = [
+            "asking for new date ideas",
+            "asking about details of a specific venue",
+            "rejecting or modifying a previous suggestion",
+            "asking a follow-up question about previous suggestions"
+        ]
+
+        # Run zero-shot classification
+        result = ZERO_SHOT_CLASSIFIER(user_message, candidate_labels, multi_label=False)
+
+        # Convert to dict with intent names and scores
+        scores = {}
+        for label, score in zip(result['labels'], result['scores']):
+            if "new date" in label:
+                scores["new_request"] = score
+            elif "details" in label:
+                scores["detail_question"] = score
+            elif "rejecting" in label or "modifying" in label:
+                scores["modification"] = score
+            elif "follow-up" in label:
+                scores["reference_to_previous"] = score
+
+        logger.debug(f"ML Intent scores: {scores}")
+        return scores
+    except Exception as e:
+        logger.warning(f"Error in ML intent classification: {e}")
+        return {}
+
+
+def _score_intent(user_message: str, intent_type: str) -> float:
+    """
+    Score how well a message matches a specific intent.
+    Uses keyword matching with configurable weights.
+
+    Returns a score from 0 to 1 where 1 is a perfect match.
+    """
+    msg_lower = user_message.lower()
+    keywords = INTENT_KEYWORDS.get(intent_type, {}).get("keywords", [])
+    weight = INTENT_KEYWORDS.get(intent_type, {}).get("weight", 1.0)
+
+    if not keywords:
+        return 0.0
+
+    # Count how many keywords match (exact phrase matching for multi-word keywords)
+    matches = 0
+    for keyword in keywords:
+        if keyword in msg_lower:
+            matches += 1
+
+    if matches == 0:
+        return 0.0
+
+    # Score based on number of matches, not ratio
+    # Each match contributes 0.3 to the score, capped at 1.0
+    # This way: 1 match = 0.3, 2 matches = 0.6, 3+ matches = 0.9+
+    score = min(matches * 0.3, 1.0) * weight
+
+    return min(score, 1.0)  # Cap at 1.0
+
+
+def _has_previous_suggestions(conversation_history: List[Dict[str, str]]) -> bool:
+    """Check if there's a previous assistant message with suggestions"""
+    # Check all messages (not just [:-1]) for assistant messages with suggestions
+    # The last message is the current user message, but we want to check if there
+    # are any previous assistant messages with suggestions
+    return any(
+        msg.get('role') == 'assistant' and
+        any(keyword in msg.get('content', '').lower()
+            for keyword in ['restaurant', 'venue', 'activity', 'place', 'option', 'itinerary', 'suggest', 'recommend', 'idea'])
+        for msg in conversation_history
+    )
 
 
 def is_follow_up_question(user_message: str, conversation_history: List[Dict[str, str]]) -> bool:
@@ -26,85 +151,80 @@ def is_follow_up_question(user_message: str, conversation_history: List[Dict[str
     Detect if the user message is a follow-up question about a previously suggested date
     vs asking for a new date.
 
-    Uses full conversation context to understand what was previously discussed.
+    Uses pre-trained ML model (zero-shot classification) with fallback to keyword matching.
 
     Strategy:
     1. If no previous assistant message with suggestions, it's a new request
-    2. Check for explicit "find/search/suggest" keywords -> new request
-    3. Check for modification/rejection keywords -> follow-up
-    4. Check for detail/logistics questions -> follow-up
-    5. Check for question patterns without "find" -> follow-up
+    2. Try ML-based classification (PRIMARY)
+    3. Fall back to keyword-based scoring if ML unavailable (FALLBACK)
+    4. Default to follow-up if uncertain (SAFE DEFAULT)
     """
-    msg_lower = user_message.lower()
-
     # If this is the first message, it's not a follow-up
-    if len(conversation_history) <= 1:
-        return False
+    # if len(conversation_history) <= 1:
+    #     logger.debug("First message - not a follow-up")
+    #     return False
 
     # Check if there's a previous assistant message with suggestions
-    # Look through entire history to find any venue/activity suggestions
-    has_previous_suggestions = any(
-        msg.get('role') == 'assistant' and
-        any(keyword in msg.get('content', '').lower() for keyword in ['restaurant', 'venue', 'activity', 'place', 'option', 'itinerary'])
-        for msg in conversation_history[:-1]
-    )
+    # if not _has_previous_suggestions(conversation_history):
+    #     logger.debug("No previous suggestions found - not a follow-up")
+    #     return False
 
-    if not has_previous_suggestions:
-        return False
+    logger.debug(f"Checking if follow-up: '{user_message[:80]}'")
 
-    # Extract context from entire conversation history
-    # This helps understand what vibes/venues were discussed
-    conversation_context = " ".join([
-        msg.get('content', '').lower()
-        for msg in conversation_history[:-1]
-    ])
+    # PRIMARY: Try ML-based classification first (more robust to language variations)
+    # This uses zero-shot classification which handles language variations better than hard-coded patterns
+    if ML_CLASSIFIER_AVAILABLE:
+        try:
+            ml_scores = _score_intent_ml(user_message)
+            if ml_scores:
+                new_request_score = ml_scores.get("new_request", 0.0)
+                modification_score = ml_scores.get("modification", 0.0)
+                detail_score = ml_scores.get("detail_question", 0.0)
+                reference_score = ml_scores.get("reference_to_previous", 0.0)
 
-    # STRONG INDICATORS OF FOLLOW-UP (modification/rejection) - CHECK FIRST
-    modification_patterns = [
-        r'(don\'t like|didn\'t like|hate|dislike|not interested|skip|remove|exclude)',
-        r'(don\'t want|didn\'t want|wouldn\'t|can\'t|won\'t)',
-        r'(replace|change|swap|substitute)',
-        r'(too|very)\s+(expensive|cheap|far|close|crowded|quiet|busy|slow)',
-        r'(not my|not the|not what)',
-    ]
+                logger.info(f"ML Intent scores - new_request: {new_request_score:.2f}, modification: {modification_score:.2f}, "
+                            f"detail: {detail_score:.2f}, reference: {reference_score:.2f}")
+                # Strong new request intent = new request
+                if new_request_score > 0.5:
+                    logger.info(f"ML: Detected strong new request intent ({new_request_score:.2f}) -> new request")
+                    return False
 
-    for pattern in modification_patterns:
-        if re.search(pattern, msg_lower):
-            return True  # It's a follow-up modification (even if it says "find something else")
+                # Detail question or reference to previous = follow-up (check first)
+                # Lower threshold for detail questions since they're clearly follow-ups
+                if detail_score > 0.15 or reference_score > 0.15:
+                    logger.info(f"ML: Detected detail/reference intent (detail={detail_score:.2f}, ref={reference_score:.2f}) -> follow-up")
+                    return True
 
-    # STRONG INDICATORS OF NEW REQUEST (only if no modification pattern matched)
-    new_request_patterns = [
-        r'\b(find|search|suggest|recommend|show|give|look for|looking for)\b',
-        r'\b(another|different|new|other)\s+(date|idea|place|restaurant|activity|experience)',
-        r'\b(instead of|rather than|how about)\b',
-        r'\b(what about|try)\b',
-    ]
+                # If modification score is high, it's a follow-up
+                if modification_score > 0.4:
+                    logger.info(f"ML: Detected modification intent ({modification_score:.2f}) -> follow-up")
+                    return True
+        except Exception as e:
+            logger.warning(f"ML classification failed, falling back to keyword matching: {e}")
 
-    for pattern in new_request_patterns:
-        if re.search(pattern, msg_lower):
-            return False  # It's a new request
+    # Fallback to keyword-based scoring
+    logger.debug("Using keyword-based intent classification")
+    new_request_score = _score_intent(user_message, "new_request")
+    modification_score = _score_intent(user_message, "modification")
+    detail_score = _score_intent(user_message, "detail_question")
+    reference_score = _score_intent(user_message, "reference_to_previous")
 
-    # DETAIL/LOGISTICS QUESTIONS (follow-up)
-    detail_patterns = [
-        r'\b(how|what|when|where|why)\b.*\b(this|that|these|those|the)\b',
-        r'\b(this|that|these|those|the)\s+(venue|restaurant|place|date|itinerary|plan|activity|option)\b',
-        r'\b(tell me|explain|describe|more about|details about|information about)\b',
-        r'\b(parking|hours|reservation|booking|cost|price|distance|travel time|directions|address|phone|website|menu)\b',
-        r'\b(vegetarian|vegan|gluten|allergy|dietary|wheelchair|accessible|pet friendly|kids|family)\b',
-        r'\b(dress code|atmosphere|noise level|wifi|parking|outdoor|indoor|ambiance|vibe)\b',
-    ]
+    logger.info(f"Keyword Intent scores - new_request: {new_request_score:.2f}, modification: {modification_score:.2f}, "
+                f"detail: {detail_score:.2f}, reference: {reference_score:.2f}")
 
-    for pattern in detail_patterns:
-        if re.search(pattern, msg_lower):
-            return True  # It's a follow-up question
-
-    # QUESTION PATTERNS (likely follow-up if no "find" keyword)
-    question_words = r'\b(how|what|when|where|why|can|could|would|should|is|are|do|does)\b'
-    if re.search(question_words, msg_lower):
-        # If it's a question but doesn't have "find/search" keywords, it's likely a follow-up
+    # Detail question or reference to previous = follow-up (check first)
+    if detail_score > 0.15 or reference_score > 0.15:
+        logger.info(f"Keyword: Detected detail/reference intent -> follow-up")
         return True
 
-    return False
+    # Strong new request intent = new request
+    if new_request_score > 0.35:
+        logger.info(f"Keyword: Detected strong new request intent -> new request")
+        return False
+
+    # Default: if we have previous suggestions and no clear new request, it's a follow-up
+    logger.info("No clear intent detected, defaulting to follow-up (SAFE DEFAULT)")
+    return True
 
 
 def extract_preferences(user_message: str) -> Dict[str, Any]:
@@ -246,6 +366,13 @@ class LLMEngine:
 
             logger.info(f"🎯 [CHAT_FLOW] Processing: {user_message[:100]}")
 
+            # VALIDATION: Check if input is valid for date ideas chat
+            is_valid, error_message, validation_metadata = InputValidator.validate(user_message)
+            if not is_valid:
+                logger.warning(f"❌ Input validation failed: {validation_metadata['validation_layers'][-1]['reason']}")
+                yield error_message
+                return
+
             # Check if this is a follow-up question
             is_followup = is_follow_up_question(user_message, messages)
             logger.info(f"📋 [FLOW_TYPE] {'Follow-up question' if is_followup else 'New date request'}")
@@ -335,6 +462,8 @@ class LLMEngine:
 
         # Build minimal context for OpenAI - only essential data
         venues_summary = ""
+        venues_data = []  # Collect structured venue data for frontend
+
         if venues_to_format:
             logger.info(f"📋 Formatting {len(venues_to_format)} venues for OpenAI")
             for i, venue in enumerate(venues_to_format, 1):
@@ -355,6 +484,46 @@ class LLMEngine:
                 if desc:
                     venues_summary += f"   📝 {desc}\n"
                 venues_summary += f"   ✨ {reason}\n\n"
+
+                # Collect structured venue data with Google Places info
+                venue_data = {
+                    "id": venue.get('id', f"venue_{i}"),
+                    "title": title,
+                    "name": title,
+                    "description": venue.get('description', ''),
+                    "address": address,
+                    "short_address": venue.get('short_address', ''),
+                    "lat": venue.get('lat', 0),
+                    "lon": venue.get('lon', 0),
+                    "rating": venue.get('rating', 0),
+                    "reviews_count": venue.get('reviews_count', 0),
+                    "price_tier": venue.get('price_tier', venue.get('cost', 0)),
+                    "price_level": venue.get('price_level', ''),
+                    "type": venue.get('type', ''),
+                    "primary_type": venue.get('primary_type', ''),
+                    "all_types": venue.get('all_types', ''),
+                    "website": venue.get('website_uri', venue.get('website', '')),
+                    "google_maps_uri": venue.get('google_maps_uri', ''),
+                    "regular_opening_hours": venue.get('regular_opening_hours', ''),
+                    "current_opening_hours": venue.get('current_opening_hours', ''),
+                    "selection_reason": reason,
+                    "vibe": venue.get('true_vibe', vibe),
+                    # Feature flags
+                    "serves_dessert": venue.get('serves_dessert', False),
+                    "serves_coffee": venue.get('serves_coffee', False),
+                    "serves_beer": venue.get('serves_beer', False),
+                    "serves_wine": venue.get('serves_wine', False),
+                    "serves_cocktails": venue.get('serves_cocktails', False),
+                    "serves_vegetarian": venue.get('serves_vegetarian', False),
+                    "good_for_groups": venue.get('good_for_groups', False),
+                    "good_for_children": venue.get('good_for_children', False),
+                    "live_music": venue.get('live_music', False),
+                    "outdoor_seating": venue.get('outdoor_seating', False),
+                    "reservable": venue.get('reservable', False),
+                    "review": venue.get('review', ''),
+                    "review_summary": venue.get('review_summary', ''),
+                }
+                venues_data.append(venue_data)
         else:
             logger.warning("⚠️  No venues to format for OpenAI!")
 
@@ -390,6 +559,17 @@ IMPORTANT: Only use the venue names and details provided above. Do not make up v
         async for chunk in response:
             if chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
+
+        # Send structured venue data as JSON after text response
+        if venues_data:
+            logger.info(f"📊 Sending structured data for {len(venues_data)} venues")
+            import json
+            venues_json = json.dumps({
+                "type": "venues_data",
+                "vibe": vibe,
+                "venues": venues_data
+            })
+            yield f"\n\n__VENUES_DATA_START__\n{venues_json}\n__VENUES_DATA_END__"
 
         logger.info("✅ [NEW_DATE_REQUEST] Complete")
 
@@ -457,39 +637,73 @@ IMPORTANT: Only use the venue names and details provided above. Do not make up v
         # Regular follow-up question handling
         yield f"📋 Checking details about your itinerary...\n"
 
-        # STEP 2: Use web search to get additional info about the venues
-        logger.info("🔍 [STEP 2] Searching for additional information...")
+        # STEP 2: Classify question and route to appropriate data source
+        logger.info("🔍 [STEP 2] Classifying question and routing to data source...")
 
-        # Build context about the venues and the question
+        from ..ml.question_classifier import QuestionClassifier
+        q_type, data_source, q_description = QuestionClassifier.classify(user_message)
+        logger.info(f"Question type: {q_type}, Data source: {data_source}, Description: {q_description}")
+
+        # Extract venue IDs from itinerary
+        venue_ids = [v.get('id') for v in itinerary if v.get('id')]
+        logger.info(f"Extracted {len(venue_ids)} venue IDs from itinerary")
+
+        # Build context based on data source
+        context_parts = []
+
+        # Always include basic venue info
         venues_context = ""
         for i, venue in enumerate(itinerary, 1):
             title = venue.get('title', venue.get('name', 'Unknown'))
             address = venue.get('address', venue.get('short_address', ''))
             venues_context += f"{i}. {title} ({address})\n"
 
-        # Search for info relevant to the question
-        search_query = f"{user_message} {' '.join([v.get('title', v.get('name', '')) for v in itinerary])}"
-        web_results = await self.search_engine.web_search(search_query, limit=3)
+        context_parts.append(f"User's Previous Itinerary:\n{venues_context}")
 
-        web_context = ""
-        if web_results:
-            logger.info(f"✅ Found {len(web_results)} web results")
-            for result in web_results:
-                web_context += f"- {result.get('title', '')}: {result.get('snippet', '')}\n"
+        # Route to appropriate data source
+        if data_source == "database" and venue_ids:
+            logger.info(f"Fetching venue details from database for question type: {q_type}")
+            try:
+                from ..tools.venue_data_fetcher import VenueDataFetcher
+                from ..db_config import get_db_config
 
-        # STEP 3: Use OpenAI to answer the question with venue data + web search
+                db_config = get_db_config()
+                # Use context manager for proper connection handling
+                with db_config.get_connection() as db_conn:
+                    fetcher = VenueDataFetcher(db_conn)
+                    venue_details = fetcher.fetch_venue_details(venue_ids, q_type, user_message)
+
+                    if venue_details:
+                        formatted_details = fetcher.format_venue_details(venue_details, q_type)
+                        context_parts.append(f"\nVenue Details ({q_description}):\n{formatted_details}")
+                        logger.info(f"✅ Fetched {len(venue_details)} venues from database")
+                    else:
+                        logger.warning("No venue details found in database, falling back to web search")
+                        data_source = "web_search"
+            except Exception as e:
+                logger.error(f"Error fetching from database: {e}, falling back to web search")
+                logger.exception(e)
+                data_source = "web_search"
+
+        if data_source == "web_search":
+            logger.info(f"Using web search for question type: {q_type}")
+            search_query = f"{user_message} {' '.join([v.get('title', v.get('name', '')) for v in itinerary])}"
+            web_results = await self.search_engine.web_search(search_query, limit=5)
+
+            web_context = ""
+            if web_results:
+                logger.info(f"✅ Found {len(web_results)} web results")
+                for result in web_results:
+                    web_context += f"- {result.get('title', '')}: {result.get('snippet', '')}\n"
+                context_parts.append(f"\nAdditional Information from Web:\n{web_context}")
+            else:
+                context_parts.append("\nNo additional web results found.")
+
+        # STEP 3: Use OpenAI to answer the question with venue data
         logger.info("🤖 [STEP 3] Formatting answer with OpenAI...")
 
-        context = f"""User's Previous Itinerary:
-{venues_context}
-
-User's Question: {user_message}
-
-Additional Information from Web:
-{web_context if web_context else "No additional web results found."}
-
-Answer the user's question about their itinerary using the venue information and web search results.
-Be specific and helpful. Reference the venues by name and provide practical details."""
+        context = "\n".join(context_parts)
+        context += f"\n\nUser's Question: {user_message}\n\nAnswer the user's question about their itinerary using the venue information provided. Be specific and helpful. Reference the venues by name and provide practical details."
 
         formatting_messages = [
             {
@@ -510,6 +724,17 @@ Be specific and helpful. Reference the venues by name and provide practical deta
         async for chunk in response:
             if chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
+
+        # Send structured venue data as JSON after text response
+        if itinerary:
+            logger.info(f"📊 Sending structured data for {len(itinerary)} venues in follow-up")
+            import json
+            venues_json = json.dumps({
+                "type": "venues_data",
+                "vibe": vibe,
+                "venues": itinerary
+            })
+            yield f"\n\n__VENUES_DATA_START__\n{venues_json}\n__VENUES_DATA_END__"
 
         logger.info("✅ [FOLLOWUP_QUESTION] Complete")
 

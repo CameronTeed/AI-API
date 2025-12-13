@@ -41,25 +41,7 @@ TOOLS_DEFINITION = [
             }
         }
     },
-    
-    # === GOOGLE SERVICES TOOLS ===
-    {
-        "type": "function",
-        "function": {
-            "name": "google_places_search",
-            "description": "Search for places, restaurants, venues using Google Places API with detailed information.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Search query for places (e.g., 'romantic restaurants', 'art galleries', 'date night activities')"},
-                    "location": {"type": "string", "description": "Location to search around (city name or address)"},
-                    "radius": {"type": "integer", "default": 25000, "description": "Search radius in meters (default 25km)"}
-                },
-                "required": ["query"],
-                "additionalProperties": False
-            }
-        }
-    },
+
     {
         "type": "function",
         "function": {
@@ -95,24 +77,7 @@ TOOLS_DEFINITION = [
             }
         }
     },
-    
-    # === WEB SCRAPING TOOLS ===
-    {
-        "type": "function",
-        "function": {
-            "name": "web_scrape_venue_info",
-            "description": "Scrape detailed information from a venue's website including hours, menu, events, contact info.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {"type": "string", "description": "Website URL to scrape"},
-                    "venue_name": {"type": "string", "description": "Name of the venue (optional, helps with extraction)"}
-                },
-                "required": ["url"],
-                "additionalProperties": False
-            }
-        }
-    },
+
     {
         "type": "function",
         "function": {
@@ -165,40 +130,5 @@ TOOLS_DEFINITION = [
             }
         }
     },
-    
-    # === ENHANCED SCRAPING TOOLS ===
-    {
-        "type": "function",
-        "function": {
-            "name": "scrapingbee_scrape",
-            "description": "Advanced web scraping using ScrapingBee API for JavaScript-heavy sites and better reliability.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {"type": "string", "description": "Website URL to scrape"},
-                    "premium_proxy": {"type": "boolean", "default": False, "description": "Use premium proxy for better success rate"},
-                    "country_code": {"type": "string", "default": "CA", "description": "Country code for proxy location"}
-                },
-                "required": ["url"],
-                "additionalProperties": False
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "eventbrite_search",
-            "description": "Search for events on Eventbrite platform.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Event search query"},
-                    "city": {"type": "string", "description": "City to search in"},
-                    "date_range": {"type": "string", "description": "Date range for events (optional)"}
-                },
-                "required": ["query"],
-                "additionalProperties": False
-            }
-        }
-    }
+
 ]

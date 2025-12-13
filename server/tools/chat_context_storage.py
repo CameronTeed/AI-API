@@ -492,6 +492,9 @@ class ChatContextStorage:
             return False
 
         try:
+            # Clean itinerary data to remove non-serializable objects (pandas Timestamp, etc.)
+            cleaned_itinerary = self._clean_for_json(itinerary)
+
             async with self.pool.connection() as conn:
                 # Mark previous itineraries as not current
                 await conn.execute("""
@@ -504,7 +507,7 @@ class ChatContextStorage:
                 await conn.execute("""
                     INSERT INTO session_itineraries (session_id, itinerary_data, vibe, budget_limit, is_current)
                     VALUES (%s, %s, %s, %s, TRUE)
-                """, (session_id, json.dumps(itinerary), vibe, budget_limit))
+                """, (session_id, json.dumps(cleaned_itinerary), vibe, budget_limit))
 
                 await conn.commit()
                 logger.info(f"✅ Stored itinerary for session {session_id} with {len(itinerary)} venues")
@@ -512,6 +515,31 @@ class ChatContextStorage:
         except Exception as e:
             logger.error(f"Error storing itinerary for session {session_id}: {e}")
             return False
+
+    def _clean_for_json(self, obj: Any) -> Any:
+        """
+        Recursively clean objects to make them JSON serializable.
+        Converts pandas Timestamp, datetime, and other non-serializable objects to strings.
+        """
+        import pandas as pd
+        from datetime import datetime
+
+        if isinstance(obj, dict):
+            return {k: self._clean_for_json(v) for k, v in obj.items()}
+        elif isinstance(obj, (list, tuple)):
+            return [self._clean_for_json(item) for item in obj]
+        elif isinstance(obj, (pd.Timestamp, datetime)):
+            return obj.isoformat()
+        elif isinstance(obj, (pd.Series, pd.DataFrame)):
+            return obj.to_dict()
+        elif hasattr(obj, '__dict__'):
+            # For custom objects, try to convert to dict
+            try:
+                return self._clean_for_json(obj.__dict__)
+            except:
+                return str(obj)
+        else:
+            return obj
 
     async def get_current_itinerary(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Get the current itinerary for a session"""
