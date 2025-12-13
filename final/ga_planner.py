@@ -8,7 +8,6 @@
 import pandas as pd
 import random
 import numpy as np
-import math
 from datetime import datetime
 import sys
 import os
@@ -20,10 +19,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import db_manager
 from heuristic_planner import check_type_match
-from planner_utils import (haversine_distance, is_open_now, add_similarity_scores,
-                           RELATED_TERMS, sort_by_date_sequence, get_venue_stage,
-                           get_venue_slot, venue_matches_type, get_venue_cuisine,
-                           get_venue_features)
+from planner_utils import (RELATED_TERMS, sort_by_date_sequence, get_venue_stage,
+                           get_venue_slot, venue_matches_type, get_venue_features)
 from config.scoring_config import ScoringConfig
 
 # Setup logging for performance tracking

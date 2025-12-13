@@ -4,7 +4,7 @@ Tests for REST API endpoints
 
 import pytest
 from fastapi.testclient import TestClient
-from server.api.app import create_app
+from ai_orchestrator.server.api.app import create_app
 
 
 @pytest.fixture

@@ -4,14 +4,11 @@
 # uses pgvector for semantic similarity search
 
 import os
-import json
 import pandas as pd
-from datetime import datetime
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 import psycopg2
 from psycopg2.extras import RealDictCursor, execute_values
 from psycopg2.pool import SimpleConnectionPool
-import numpy as np
 from sentence_transformers import SentenceTransformer
 from dotenv import load_dotenv
 
