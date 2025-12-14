@@ -187,7 +187,7 @@ Provide the JSON followed by an enthusiastic conversational response with detail
         """Stream the synthesis response from the LLM"""
         try:
             response = self.llm_client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4o-mini",  # Using cheaper model (~90% cost reduction)
                 messages=[
                     {"role": "system", "content": "You are an enthusiastic Date Planner AI that provides comprehensive, positive recommendations."},
                     {"role": "user", "content": prompt}

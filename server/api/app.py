@@ -14,6 +14,7 @@ from slowapi.errors import RateLimitExceeded
 
 from .routes import chat, admin, health
 from . import ml_endpoints
+from ..middleware import RateLimitMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,9 @@ def create_app() -> FastAPI:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+    # Add account-based rate limiting middleware
+    app.add_middleware(RateLimitMiddleware)
+
     # Add CORS middleware
     app.add_middleware(
         CORSMiddleware,
@@ -58,7 +62,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router, prefix="/api/health", tags=["health"])
     app.include_router(ml_endpoints.router, tags=["ml-service"])
 
-    logger.info("✅ FastAPI application configured with rate limiting (100 req/min)")
+    logger.info("✅ FastAPI application configured with account-based rate limiting")
 
     return app
 

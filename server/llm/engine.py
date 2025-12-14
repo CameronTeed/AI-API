@@ -549,7 +549,7 @@ IMPORTANT: Only use the venue names and details provided above. Do not make up v
         ]
 
         response = await self.client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4o-mini",  # Using cheaper model (~90% cost reduction)
             messages=formatting_messages,
             max_tokens=600,  # Keep response reasonable
             stream=True
@@ -714,7 +714,7 @@ IMPORTANT: Only use the venue names and details provided above. Do not make up v
         ]
 
         response = await self.client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4o-mini",  # Using cheaper model (~90% cost reduction)
             messages=formatting_messages,
             max_tokens=400,
             stream=True

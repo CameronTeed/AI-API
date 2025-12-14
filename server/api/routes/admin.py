@@ -300,3 +300,29 @@ async def list_date_ideas():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/rate-limit-stats/{account_id}")
+async def get_rate_limit_stats(
+    account_id: str,
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Get rate limit statistics for an account
+    Requires admin token
+    """
+    if not verify_admin_token(authorization):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        from ...rate_limiting import get_rate_limiter
+
+        rate_limiter = get_rate_limiter()
+        stats = rate_limiter.get_account_stats(account_id)
+
+        return {
+            "account_id": account_id,
+            "stats": stats
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting rate limit stats: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
