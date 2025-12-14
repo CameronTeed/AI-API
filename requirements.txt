@@ -47,3 +47,5 @@ geopy>=2.3.0
 redis>=4.5.0  # Optional for advanced caching
 # Additional search providers (optional)
 duckduckgo-search>=3.8.0  # For DuckDuckGo search support
+# Error tracking and monitoring
+sentry-sdk>=1.40.0

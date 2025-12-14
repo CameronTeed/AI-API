@@ -8,89 +8,107 @@ from dotenv import load_dotenv
 
 from .interceptors import LoggingInterceptor
 from .chat_handler import EnhancedChatHandler
+from .config import get_config
+from .health import get_health_checker
+from .metrics import get_metrics
+from .exceptions import ConfigurationError, log_exception
+from .sentry_integration import init_sentry
 
 # Import generated protobuf files
 import chat_service_pb2_grpc
 
-# Configure comprehensive logging
-logging.basicConfig(
-    level=logging.DEBUG,  # Set to DEBUG for detailed logs
-    format='%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(funcName)s() - %(message)s',
-    handlers=[
-        logging.StreamHandler(),  # Console output
-        logging.FileHandler('/tmp/ai_orchestrator.log', mode='a')  # File output
-    ]
-)
 
-# Set specific log levels for different components
-logging.getLogger('httpx').setLevel(logging.DEBUG)
-logging.getLogger('openai').setLevel(logging.DEBUG)
-logging.getLogger('grpc').setLevel(logging.DEBUG)
-logging.getLogger('sentence_transformers').setLevel(logging.INFO)  # Keep this less verbose
+def setup_logging(log_level: str, environment: str):
+    """Setup comprehensive logging"""
+    log_format = '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(funcName)s() - %(message)s'
 
-logger = logging.getLogger(__name__)
-logger.debug("🔧 Enhanced logging configuration initialized")
+    handlers = [logging.StreamHandler()]  # Console output
+
+    # Add file logging in non-production environments
+    if environment != 'production':
+        handlers.append(logging.FileHandler('/tmp/ai_orchestrator.log', mode='a'))
+
+    logging.basicConfig(
+        level=getattr(logging, log_level),
+        format=log_format,
+        handlers=handlers
+    )
+
+    # Set specific log levels for different components
+    logging.getLogger('httpx').setLevel(logging.INFO)
+    logging.getLogger('openai').setLevel(logging.INFO)
+    logging.getLogger('grpc').setLevel(logging.INFO)
+    logging.getLogger('sentence_transformers').setLevel(logging.WARNING)
+
+    logger = logging.getLogger(__name__)
+    logger.info(f"✅ Logging configured for {environment} environment")
 
 async def serve():
     """Start the gRPC server"""
-    logger.debug("🚀 Starting serve() function")
-    load_dotenv()
-    logger.debug("📄 Environment variables loaded")
-    
-    # Get configuration from environment
-    port = int(os.getenv('PORT', '7000'))
-    bearer_token = os.getenv('AI_BEARER_TOKEN', 'your_bearer_token_here')
-    java_target = os.getenv('JAVA_GRPC_TARGET', 'localhost:8081')
-    search_provider = os.getenv('SEARCH_PROVIDER', 'none')
-    default_city = os.getenv('DEFAULT_CITY', 'Ottawa')
-    
-    logger.debug(f"⚙️  Configuration loaded:")
-    logger.debug(f"   - Port: {port}")
-    logger.debug(f"   - Bearer token: {bearer_token[:10]}..." if len(bearer_token) > 10 else f"   - Bearer token: {bearer_token}")
-    logger.debug(f"   - Java target: {java_target}")
-    logger.debug(f"   - Search provider: {search_provider}")
-    logger.debug(f"   - Default city: {default_city}")
-    logger.debug(f"   - Google Places API: {'✅' if os.getenv('GOOGLE_PLACES_API_KEY') else '❌'}")
-    logger.debug(f"   - Database: {os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}")
-    
-    # Validate required environment variables
-    required_vars = ['OPENAI_API_KEY']
-    missing_vars = [var for var in required_vars if not os.getenv(var)]
-    if missing_vars:
-        logger.error(f"Missing required environment variables: {missing_vars}")
+    logger = logging.getLogger(__name__)
+    logger.info("🚀 Starting AI Orchestrator server...")
+
+    try:
+        # Load and validate configuration
+        config = get_config()
+        config.log_config()
+
+        # Setup logging with configuration
+        setup_logging(config.server.log_level, config.server.environment)
+        logger = logging.getLogger(__name__)
+
+        # Initialize Sentry for error tracking
+        init_sentry(
+            environment=config.server.environment,
+            traces_sample_rate=0.1 if config.server.environment == "production" else 1.0,
+        )
+
+        logger.info(f"✅ Configuration loaded for {config.server.environment} environment")
+
+    except ConfigurationError as e:
+        logger.error(f"❌ Configuration error: {e.message}")
+        log_exception(e, "configuration_loading")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"❌ Failed to load configuration: {str(e)}")
+        log_exception(e, "configuration_loading")
         sys.exit(1)
     
     # Create interceptors
-    # auth_interceptor = AuthInterceptor(bearer_token)  # Disable auth for now
     logging_interceptor = LoggingInterceptor()
-    
+
     # Create server with interceptors
     server = aio.server(
-        interceptors=[logging_interceptor]  # Only logging for now
+        interceptors=[logging_interceptor]
     )
-    
+
     # Add servicer with enhanced features
-    logger.info("🚀 Using Enhanced ChatHandler with agent tools and context storage")
+    logger.info("🚀 Initializing Enhanced ChatHandler with agent tools and context storage")
     chat_handler = EnhancedChatHandler()
-    
+
     # Setup enhanced features
     try:
         await chat_handler.setup_storage()
-        logger.info("✅ Enhanced chat storage setup completed")
+        logger.info("✅ Chat storage setup completed")
     except Exception as e:
-        logger.warning(f"⚠️ Enhanced storage setup failed, continuing anyway: {e}")
-    
+        logger.warning(f"⚠️ Chat storage setup failed, continuing anyway: {e}")
+        log_exception(e, "chat_storage_setup")
+
     chat_service_pb2_grpc.add_AiOrchestratorServicer_to_server(chat_handler, server)
-    
+
     # Bind to port
-    listen_addr = f'[::]:{port}'
+    listen_addr = f'[::]:{config.server.port}'
     server.add_insecure_port(listen_addr)
-    
+
+    # Initialize health checker and metrics
+    health_checker = get_health_checker()
+    metrics = get_metrics()
+
     # Start server
-    logger.info(f"🎯 Starting AI Orchestrator server on {listen_addr}")
-    logger.info(f"🔗 Java gRPC target: {os.getenv('JAVA_GRPC_TARGET', 'localhost:9090')}")
-    logger.info(f"🔍 Search provider: {os.getenv('SEARCH_PROVIDER', 'serpapi')}")
-    logger.info(f"📍 Default city: {os.getenv('DEFAULT_CITY', 'Ottawa')}")
+    logger.info(f"🎯 Server listening on {listen_addr}")
+    logger.info(f"🔗 Java gRPC target: {config.api.java_grpc_target}")
+    logger.info(f"🔍 Search provider: {config.api.search_provider}")
+    logger.info(f"📍 Default city: {config.api.default_city}")
     logger.info(f"🤖 Chat mode: Enhanced with Agent Tools")
     
     await server.start()
