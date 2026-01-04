@@ -17,15 +17,30 @@ from .sentry_integration import init_sentry
 # Import generated protobuf files
 import chat_service_pb2_grpc
 
+# Module-level logger for use before logging is fully configured
+logger = logging.getLogger(__name__)
+
 
 def setup_logging(log_level: str, environment: str):
-    """Setup comprehensive logging"""
+    """Setup comprehensive logging (optional - controlled by LOGGING_ENABLED env var)"""
+    # Check if logging is enabled
+    logging_enabled = os.getenv("LOGGING_ENABLED", "true").lower() in ("true", "1", "yes")
+
+    if not logging_enabled:
+        # Disable all logging
+        logging.disable(logging.CRITICAL)
+        return
+
     log_format = '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(funcName)s() - %(message)s'
 
     handlers = [logging.StreamHandler()]  # Console output
 
-    # Add file logging in non-production environments
-    if environment != 'production':
+    # Add file logging if enabled
+    log_file = os.getenv("LOGGING_FILE")
+    if log_file:
+        handlers.append(logging.FileHandler(log_file, mode='a'))
+    elif environment != 'production':
+        # Default file logging in non-production environments
         handlers.append(logging.FileHandler('/tmp/ai_orchestrator.log', mode='a'))
 
     logging.basicConfig(
