@@ -19,12 +19,28 @@ RUN pip install --no-cache-dir \
     -r requirements-base.txt
 
 # Install ML dependencies separately (slower, but isolated)
+# Use CPU-only PyTorch to reduce memory usage during build
 # Use --no-build-isolation for faster compilation
+# Install torch first (largest package)
+RUN pip install --no-cache-dir \
+    --no-build-isolation \
+    --disable-pip-version-check \
+    --index-url https://download.pytorch.org/whl/cpu \
+    -q \
+    torch==2.0.1
+
+# Install remaining ML dependencies
 RUN pip install --no-cache-dir \
     --no-build-isolation \
     --disable-pip-version-check \
     -q \
-    -r requirements-ml.txt
+    transformers>=4.30.0 \
+    sentence-transformers>=2.2.0 \
+    spacy>=3.0.0 \
+    numpy>=1.21.0 \
+    pandas>=1.3.0 \
+    scikit-learn>=1.0.0 \
+    pydeck>=0.8.0
 
 # Runtime stage - Minimal image
 FROM python:3.10-slim
