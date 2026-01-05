@@ -1,0 +1,48 @@
+# grpc stack
+grpcio
+grpcio-tools
+protobuf
+
+# server
+uvloop==0.20.0; platform_system!="Windows"
+pydantic>=2.7
+httpx>=0.27
+python-dotenv
+
+# LLM
+openai>=1.40.0
+
+# PostgreSQL and vector support
+psycopg[binary]>=3.1.0
+psycopg-pool>=3.1.0
+psycopg2-binary>=2.9.0
+pgvector>=0.2.0
+
+# REST API wrapper
+fastapi>=0.104.0
+uvicorn>=0.24.0
+slowapi>=0.1.9
+
+# Web UI dependencies
+jinja2>=3.1.0
+python-multipart>=0.0.6
+
+# Web scraping dependencies
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+feedparser>=6.0.0
+scrapingbee>=1.7.0
+googlemaps>=4.10.0
+
+# Geospatial libraries
+geopy>=2.3.0
+
+# Caching and performance
+redis>=4.5.0
+
+# Additional search providers
+duckduckgo-search>=3.8.0
+
+# Error tracking and monitoring
+sentry-sdk>=1.40.0
+

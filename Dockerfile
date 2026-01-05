@@ -1,4 +1,5 @@
-FROM python:3.10-slim
+# Build stage - Install dependencies
+FROM python:3.10-slim AS builder
 
 WORKDIR /app
 
@@ -8,16 +9,37 @@ RUN apt-get update && apt-get install -y \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements
-COPY requirements.txt .
+# Copy requirements files
+COPY requirements-base.txt requirements-ml.txt ./
 
-# Install Python dependencies with memory optimization
-# Use --no-cache-dir to reduce memory usage during installation
-# Use --no-build-isolation to reduce memory footprint
+# Install base dependencies first (faster, no compilation needed)
+RUN pip install --no-cache-dir \
+    --disable-pip-version-check \
+    -q \
+    -r requirements-base.txt
+
+# Install ML dependencies separately (slower, but isolated)
+# Use --no-build-isolation for faster compilation
 RUN pip install --no-cache-dir \
     --no-build-isolation \
     --disable-pip-version-check \
-    -r requirements.txt
+    -q \
+    -r requirements-ml.txt
+
+# Runtime stage - Minimal image
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install only runtime dependencies (no build tools)
+RUN apt-get update && apt-get install -y \
+    postgresql-client \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy installed packages from builder
+COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
 COPY . .
@@ -30,7 +52,7 @@ EXPOSE 50051 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "import socket; socket.create_connection(('localhost', 50051), timeout=5)"
+    CMD curl -f http://localhost:8000/health || exit 1
 
 # Default environment variables for deployment
 ENV PYTHONUNBUFFERED=1
