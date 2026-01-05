@@ -11,8 +11,13 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies with memory optimization
+# Use --no-cache-dir to reduce memory usage during installation
+# Use --no-build-isolation to reduce memory footprint
+RUN pip install --no-cache-dir \
+    --no-build-isolation \
+    --disable-pip-version-check \
+    -r requirements.txt
 
 # Copy application code
 COPY . .
